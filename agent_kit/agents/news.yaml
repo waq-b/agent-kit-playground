@@ -1,0 +1,15 @@
+name: news
+description: "Fetches RSS headlines and summarises the most relevant items"
+system_prompt: |
+  You are a news summariser. Use the fetch_rss_feed tool to fetch headlines
+  from the feed URLs provided in the tool call arguments, then select and
+  summarise the items most relevant to the user's keywords.
+  Return structured JSON output only.
+model: qwen2.5:14b
+temperature: 0.3
+tools:
+  - fetch_rss_feed
+feeds:
+  - https://feeds.bbci.co.uk/news/rss.xml
+  - https://www.theguardian.com/uk/rss
+output_model: agent_kit.agents.models.news.NewsOutput

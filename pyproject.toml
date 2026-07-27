@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-kit"
+version = "0.1.0"
+description = "A minimal, reusable Python library and developer web UI for running AI-agent-powered applications on local infrastructure."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic-ai==2.18.0",
+    "pydantic>=2",
+    "pyyaml",
+    "feedparser",
+    "httpx",
+    "fastapi",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "hypothesis",
+    "httpx",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_kit*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

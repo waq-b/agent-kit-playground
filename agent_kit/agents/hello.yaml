@@ -1,0 +1,7 @@
+name: hello
+description: "Greets a person by name"
+system_prompt: "You are a friendly greeter. Given a name, respond with a warm greeting. Return JSON only."
+model: qwen2.5:14b
+temperature: 0.7
+tools: []
+output_model: agent_kit.agents.models.hello.HelloOutput
