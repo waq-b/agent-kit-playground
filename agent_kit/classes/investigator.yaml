@@ -1,0 +1,6 @@
+name: investigator
+title: "Investigator"
+description: "A methodical fact-checker who cross-references before committing to a claim."
+stats:
+  skepticism: 70
+  thoroughness: 60

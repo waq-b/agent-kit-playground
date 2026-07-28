@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from agent_kit.card_loader import parse_card
 from agent_kit.definition import AgentDefinition
 from agent_kit.errors import (
     AgentKitError,
@@ -57,6 +58,9 @@ class DefinitionLoader:
                 f"cannot resolve output_model '{output_model_ref}' referenced in {path}: {e}"
             ) from e
 
+        card_data = data.get("card")
+        card = parse_card(card_data, path) if card_data is not None else None
+
         return AgentDefinition(
             name=data["name"],
             description=data.get("description", ""),
@@ -67,6 +71,7 @@ class DefinitionLoader:
             output_model=output_model,
             source_path=path,
             feeds=list(data.get("feeds", [])),
+            card=card,
         )
 
     def load_directory(self, directory: Path) -> list[AgentDefinition]:

@@ -19,13 +19,18 @@ from hypothesis import strategies as st
 import agent_kit
 import agent_kit.notify as notify_mod
 from agent_kit.agents.models.hello import HelloOutput
+from agent_kit.card_definition import CardDefinition
+from agent_kit.card_store import CardStore
+from agent_kit.class_definition import ClassDefinition
+from agent_kit.class_registry import get_class_registry
 from agent_kit.definition import AgentDefinition
-from agent_kit.errors import DuplicateAgentError, TemperatureRangeError
+from agent_kit.errors import DuplicateAgentError, TemperatureRangeError, UnknownGradeActionError
 from agent_kit.loader import DefinitionLoader
 from agent_kit.registry import AgentRegistry, get_registry
 from agent_kit.runner import Runner
 from agent_kit.stub_store import get_stub_store
 from agent_kit.tool_registry import get_tool_registry
+from agent_kit.xp_rules import compute_level, compute_xp_delta, grade_for_action
 
 OUTPUT_MODEL = "agent_kit.agents.models.hello.HelloOutput"
 
@@ -41,6 +46,7 @@ def _reset_global_singletons() -> None:
     get_registry().clear()
     get_stub_store().clear()
     get_tool_registry().clear()
+    get_class_registry().clear()
     agent_kit._initialise()
 
 
@@ -171,3 +177,49 @@ def test_p10_loader_error_isolation(tmp_path_factory, n):
 
     defs = DefinitionLoader().load_directory(directory)
     assert len(defs) == n
+
+
+_KNOWN_GRADE_ACTIONS = ("thumbs_up", "thumbs_down", "more_like_this", "less_like_this", "implicit_view")
+
+
+def _make_test_card() -> CardDefinition:
+    main_class = ClassDefinition(
+        name="p11_class", title="P11 Class", description="d", stats={"warmth": 50}, source_path=Path("x.yaml")
+    )
+    return CardDefinition(
+        title="P11 Class", backstory="", portrait="", main_class=main_class, sub_class=None,
+        class_stats={"warmth": 50},
+        base_stats={"accuracy": 50, "insight": 50, "speed": 50, "reliability": 50},
+        unlock_table=(), starting_level=1, starting_xp=0,
+    )
+
+
+# P11 - Stats always stay in [0, 100] after any sequence of graded feedback
+@given(actions=st.lists(st.sampled_from(_KNOWN_GRADE_ACTIONS), min_size=1, max_size=30))
+@settings(max_examples=30, deadline=None)
+def test_p11_stats_always_stay_in_valid_range(actions):
+    store = CardStore(":memory:")
+    store.ensure_seeded("p11_agent", _make_test_card())
+    for action in actions:
+        store.record_xp_event("p11_agent", action)
+    state = store.get_state("p11_agent")
+    for value in state.base_stats.values():
+        assert 0 <= value <= 100
+
+
+# P12 - Level is monotonically non-decreasing as cumulative XP increases
+@given(xp_values=st.lists(st.integers(min_value=-200, max_value=2000), min_size=2, max_size=20))
+@settings(max_examples=30, deadline=None)
+def test_p12_level_is_monotonic_non_decreasing_with_xp(xp_values):
+    for xp_low, xp_high in zip(sorted(xp_values), sorted(xp_values)[1:]):
+        assert compute_level(xp_high) >= compute_level(xp_low)
+
+
+# P13 - Any action outside the known table always raises UnknownGradeActionError
+@given(action=st.text(min_size=1, max_size=50).filter(lambda s: s not in _KNOWN_GRADE_ACTIONS))
+@settings(max_examples=30, deadline=None)
+def test_p13_unknown_grade_action_always_raises(action):
+    with pytest.raises(UnknownGradeActionError):
+        compute_xp_delta(action)
+    with pytest.raises(UnknownGradeActionError):
+        grade_for_action(action)

@@ -8,6 +8,8 @@ from typing import Any, Callable
 
 from pydantic import BaseModel
 
+from agent_kit.class_loader import ClassLoader
+from agent_kit.class_registry import get_class_registry
 from agent_kit.errors import AgentKitError, LoadSummaryError
 from agent_kit.loader import DefinitionLoader
 from agent_kit.registry import get_registry
@@ -18,6 +20,7 @@ from agent_kit.tool_registry import get_tool_registry
 logger = logging.getLogger(__name__)
 
 _BUILTIN_AGENTS_DIR = Path(__file__).parent / "agents"
+_BUILTIN_CLASSES_DIR = Path(__file__).parent / "classes"
 
 __all__ = ["register_definition", "register_fixture", "register_tool", "run_agent"]
 
@@ -62,8 +65,27 @@ def _validate_builtin_input(name: str, input_data: dict[str, Any]) -> None:
         NewsInput.model_validate(input_data)
 
 
+def _load_builtin_classes() -> None:
+    """Load and register the built-in class templates shipped with agent-kit.
+
+    Must run before agent definitions are loaded, since `parse_card` resolves
+    `card.main_class`/`card.sub_class` against the ClassRegistry while parsing
+    each agent's YAML.
+    """
+    if not _BUILTIN_CLASSES_DIR.is_dir():
+        return
+    try:
+        class_defs = ClassLoader().load_directory(_BUILTIN_CLASSES_DIR)
+    except LoadSummaryError as e:
+        logger.warning("failed to load any built-in class definitions: %s", e)
+        return
+    for class_def in class_defs:
+        get_class_registry().register(class_def)
+
+
 def _initialise() -> None:
     """Load and register the built-in agents shipped with agent-kit."""
+    _load_builtin_classes()
     if not _BUILTIN_AGENTS_DIR.is_dir():
         return
     try:

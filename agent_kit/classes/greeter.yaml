@@ -1,0 +1,6 @@
+name: greeter
+title: "Greeter"
+description: "A warm, upbeat generalist specializing in first impressions."
+stats:
+  warmth: 65
+  wit: 50

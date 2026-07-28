@@ -1,6 +1,11 @@
+from pathlib import Path
+
 import pytest
 
+from agent_kit.class_definition import ClassDefinition
+from agent_kit.class_registry import get_class_registry
 from agent_kit.errors import (
+    ClassNotFoundError,
     MissingFieldError,
     TemperatureRangeError,
     UnresolvableOutputModelError,
@@ -81,3 +86,60 @@ def test_directory_with_one_bad_file_and_n_good_files_returns_n(tmp_path):
     defs = DefinitionLoader().load_directory(tmp_path)
     assert len(defs) == 3
     assert sorted(d.name for d in defs) == ["good0", "good1", "good2"]
+
+
+@pytest.fixture
+def _isolated_class_registry():
+    get_class_registry().clear()
+    get_class_registry().register(
+        ClassDefinition(name="greeter", title="Greeter", description="d", stats={"warmth": 60}, source_path=Path("test_class.yaml"))
+    )
+    get_class_registry().register(
+        ClassDefinition(name="investigator", title="Investigator", description="d", stats={"skepticism": 70}, source_path=Path("test_class.yaml"))
+    )
+    yield
+    get_class_registry().clear()
+
+
+def test_agent_without_card_section_has_none_card(tmp_path):
+    path = tmp_path / "a.yaml"
+    path.write_text(f"name: a\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n")
+
+    definition = DefinitionLoader().load_file(path)
+    assert definition.card is None
+
+
+def test_agent_with_main_class_only_card(tmp_path, _isolated_class_registry):
+    path = tmp_path / "a.yaml"
+    path.write_text(
+        f"name: a\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n"
+        "card:\n  main_class: greeter\n"
+    )
+
+    definition = DefinitionLoader().load_file(path)
+    assert definition.card is not None
+    assert definition.card.title == "Greeter"
+    assert definition.card.sub_class is None
+
+
+def test_agent_with_main_and_sub_class_card(tmp_path, _isolated_class_registry):
+    path = tmp_path / "a.yaml"
+    path.write_text(
+        f"name: a\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n"
+        "card:\n  main_class: greeter\n  sub_class: investigator\n"
+    )
+
+    definition = DefinitionLoader().load_file(path)
+    assert definition.card.title == "Greeter Investigator"
+    assert definition.card.class_stats == {"warmth": 60, "skepticism": 70}
+
+
+def test_agent_card_with_unknown_class_raises_class_not_found_error(tmp_path, _isolated_class_registry):
+    path = tmp_path / "a.yaml"
+    path.write_text(
+        f"name: a\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n"
+        "card:\n  main_class: nonexistent\n"
+    )
+
+    with pytest.raises(ClassNotFoundError):
+        DefinitionLoader().load_file(path)

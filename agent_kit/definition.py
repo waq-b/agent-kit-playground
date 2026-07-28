@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from agent_kit.card_definition import CardDefinition
+
 
 @dataclass(frozen=True)
 class AgentDefinition:
@@ -19,3 +21,4 @@ class AgentDefinition:
     output_model: type[BaseModel]
     source_path: Path
     feeds: list[str] = field(default_factory=list)
+    card: CardDefinition | None = None

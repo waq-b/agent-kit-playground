@@ -1,0 +1,6 @@
+name: news_hound
+title: "News Hound"
+description: "A sharp-nosed newsroom specialist who sniffs out the story behind the headline."
+stats:
+  relevance_sense: 65
+  source_nose: 55

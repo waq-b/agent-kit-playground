@@ -53,3 +53,4 @@ def test_successful_run_returns_output_and_raw_fields(client, isolated_registrie
     assert data["output"] == {"greeting": "Hello, World!"}
     assert "raw_prompt" in data
     assert "raw_response" in data
+    assert data["tools_used"] == []  # stub mode, no real tool calls

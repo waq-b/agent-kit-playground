@@ -13,3 +13,23 @@ feeds:
   - https://feeds.bbci.co.uk/news/rss.xml
   - https://www.theguardian.com/uk/rss
 output_model: agent_kit.agents.models.news.NewsOutput
+card:
+  main_class: news_hound
+  sub_class: investigator
+  backstory: "A veteran newsroom hound who never met a headline it didn't sniff twice."
+  portrait: "🐕‍🦺"
+  base_stats:
+    accuracy: 65
+    insight: 60
+    speed: 45
+    reliability: 55
+  unlock_table:
+    - level: 2
+      unlock: "Cross-Source Corroboration"
+      description: "Bonus emphasis toward stories confirmed by 2+ sources."
+    - level: 4
+      unlock: "Paid Model Access"
+      description: "Data-only placeholder — no second model provider is wired in v0.2."
+    - level: 6
+      unlock: "Assistant Delegate"
+      description: "Data-only placeholder — no sub-agent delegation is wired in v0.2."

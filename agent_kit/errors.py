@@ -53,7 +53,7 @@ class AgentConnectionError(AgentKitError):
 
 
 class LoadSummaryError(AgentKitError):
-    """Raised by DefinitionLoader.load_directory to aggregate per-file errors."""
+    """Raised by DefinitionLoader/ClassLoader.load_directory to aggregate per-file errors."""
 
 
 class UnknownToolError(AgentKitError):
@@ -62,3 +62,35 @@ class UnknownToolError(AgentKitError):
 
 class FeedFetchError(AgentKitError):
     """Raised when an RSS feed cannot be fetched or parsed."""
+
+
+class ClassNotFoundError(AgentKitError):
+    """Raised when a requested class name is not in the ClassRegistry."""
+
+
+class DuplicateClassError(AgentKitError):
+    """Raised when a class name is already registered."""
+
+
+class StatRangeError(AgentKitError):
+    """Raised when a stat value is outside the allowed range [0, 100]."""
+
+
+class UnknownStatError(AgentKitError):
+    """Raised when a card's base_stats override references a name outside the universal base stat set."""
+
+
+class ReservedStatNameError(AgentKitError):
+    """Raised when a class definition's stats use a name reserved for the universal base stats."""
+
+
+class InvalidUnlockTableError(AgentKitError):
+    """Raised when a card's unlock_table entry is malformed (missing level/unlock, or invalid level)."""
+
+
+class UnknownGradeActionError(AgentKitError):
+    """Raised when a grading action is not in the known XP rules table."""
+
+
+class AgentCardNotFoundError(AgentKitError):
+    """Raised when CardStore is queried for an agent with no seeded card state."""

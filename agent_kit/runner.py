@@ -11,9 +11,11 @@ from typing import Any, Callable
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import AgentRunError, ModelAPIError
+from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from agent_kit.card_store import get_card_store
 from agent_kit.definition import AgentDefinition
 from agent_kit.errors import (
     AgentConnectionError,
@@ -22,6 +24,7 @@ from agent_kit.errors import (
     TemperatureRangeError,
     TypeMismatchError,
 )
+from agent_kit.stat_mapping import compute_runtime_params
 from agent_kit.stub_store import get_stub_store
 from agent_kit.tool_registry import get_tool_registry
 
@@ -66,6 +69,7 @@ class Runner:
     def __init__(self) -> None:
         self.last_raw_prompt: str = ""
         self.last_raw_response: str = ""
+        self.last_tools_used: list[str] = []
 
     def execute(self, definition: AgentDefinition, input_data: dict[str, Any]) -> BaseModel:
         if not (0.0 <= definition.temperature <= 2.0):
@@ -95,6 +99,7 @@ class Runner:
 
         self.last_raw_prompt = f"[stub mode] input: {input_data}"
         self.last_raw_response = f"[stub mode] fixture: {validated.model_dump()}"
+        self.last_tools_used = []
         return validated
 
     def _ensure_feeds_reachable(self, definition: AgentDefinition) -> None:
@@ -128,6 +133,18 @@ class Runner:
 
         tools = [_tolerate_feed_failures(get_tool_registry().get(name)) for name in definition.tools]
 
+        model_settings = {"temperature": definition.temperature}
+        retries = tool_timeout = max_concurrency = None
+
+        if definition.card is not None:
+            store = get_card_store()
+            store.ensure_seeded(definition.name, definition.card)
+            state = store.get_state(definition.name)
+            tool_tiers = {name: tp.tier for name, tp in state.tool_proficiency.items()}
+            params = compute_runtime_params(definition.temperature, state.base_stats, tool_tiers)
+            model_settings["temperature"] = params.temperature
+            retries, tool_timeout, max_concurrency = params.retries, params.tool_timeout, params.max_concurrency
+
         model = OpenAIChatModel(
             definition.model,
             provider=OpenAIProvider(base_url=OLLAMA_BASE_URL, api_key="ollama"),
@@ -137,7 +154,10 @@ class Runner:
             output_type=definition.output_model,
             system_prompt=definition.system_prompt,
             tools=tools,
-            model_settings={"temperature": definition.temperature},
+            model_settings=model_settings,
+            retries=retries,
+            tool_timeout=tool_timeout,
+            max_concurrency=max_concurrency,
         )
 
         # Feed URLs are declared in YAML (Req 9.2), not the system prompt, so they're
@@ -162,5 +182,11 @@ class Runner:
             "\n".join(_part_text(p) for p in messages[0].parts) if messages else prompt
         )
         self.last_raw_response = "\n".join(_part_text(p) for p in result.response.parts)
+        self.last_tools_used = [
+            part.tool_name
+            for msg in messages
+            for part in getattr(msg, "parts", [])
+            if isinstance(part, ToolCallPart)
+        ]
 
         return result.output
