@@ -1,0 +1,2006 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "agent-kit playground",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/agents": {
+      "get": {
+        "summary": "List Agents",
+        "operationId": "list_agents_api_v1_agents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Agents Api V1 Agents Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{agent_name}/run": {
+      "post": {
+        "summary": "Run Agent Endpoint",
+        "operationId": "run_agent_endpoint_api_v1_agents__agent_name__run_post",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cards": {
+      "get": {
+        "summary": "List Cards",
+        "operationId": "list_cards_api_v1_cards_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CardSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Cards Api V1 Cards Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{agent_name}/card": {
+      "get": {
+        "summary": "Get Agent Card",
+        "operationId": "get_agent_card_api_v1_agents__agent_name__card_get",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{agent_name}/grade": {
+      "post": {
+        "summary": "Grade Agent",
+        "operationId": "grade_agent_api_v1_agents__agent_name__grade_post",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools": {
+      "get": {
+        "summary": "List Tools",
+        "operationId": "list_tools_api_v1_tools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response List Tools Api V1 Tools Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/classes": {
+      "get": {
+        "summary": "List Classes",
+        "operationId": "list_classes_api_v1_classes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClassSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Classes Api V1 Classes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{agent_name}/builder": {
+      "get": {
+        "summary": "Get Agent Builder Detail",
+        "operationId": "get_agent_builder_detail_api_v1_agents__agent_name__builder_get",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBuilderDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{agent_name}/sample-input": {
+      "get": {
+        "summary": "Get Sample Input",
+        "operationId": "get_sample_input_api_v1_agents__agent_name__sample_input_get",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Sample Input Api V1 Agents  Agent Name  Sample Input Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/builder/agents": {
+      "post": {
+        "summary": "Create Agent Endpoint",
+        "operationId": "create_agent_endpoint_api_v1_builder_agents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBuilderDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/builder/agents/{agent_name}": {
+      "put": {
+        "summary": "Update Agent Endpoint",
+        "operationId": "update_agent_endpoint_api_v1_builder_agents__agent_name__put",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBuilderDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Agent Endpoint",
+        "operationId": "delete_agent_endpoint_api_v1_builder_agents__agent_name__delete",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Confirm"
+            }
+          },
+          {
+            "name": "confirm_core",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Confirm Core"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Agent Endpoint Api V1 Builder Agents  Agent Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/builder/agents/{agent_name}/duplicate": {
+      "post": {
+        "summary": "Duplicate Agent Endpoint",
+        "operationId": "duplicate_agent_endpoint_api_v1_builder_agents__agent_name__duplicate_post",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateAgentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBuilderDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/builder/classes": {
+      "post": {
+        "summary": "Create Class Endpoint",
+        "operationId": "create_class_endpoint_api_v1_builder_classes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClassRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/builder/model-check": {
+      "get": {
+        "summary": "Model Check Endpoint",
+        "operationId": "model_check_endpoint_api_v1_builder_model_check_get",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCheckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gm/queue": {
+      "get": {
+        "summary": "Gm Queue",
+        "operationId": "gm_queue_api_v1_gm_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RespecQueueEntry"
+                  },
+                  "type": "array",
+                  "title": "Response Gm Queue Api V1 Gm Queue Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gm/queue/process": {
+      "post": {
+        "summary": "Gm Queue Process",
+        "operationId": "gm_queue_process_api_v1_gm_queue_process_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespecProcessResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gm/suggestions": {
+      "get": {
+        "summary": "Gm Suggestions",
+        "operationId": "gm_suggestions_api_v1_gm_suggestions_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "pending",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SuggestionSummary"
+                  },
+                  "title": "Response Gm Suggestions Api V1 Gm Suggestions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gm/suggestions/{suggestion_id}/approve": {
+      "post": {
+        "summary": "Gm Approve Suggestion",
+        "description": "Apply a GM-suggested system prompt via the normal builder update path,\nso it inherits validate-then-commit and hot-reload like any other edit.",
+        "operationId": "gm_approve_suggestion_api_v1_gm_suggestions__suggestion_id__approve_post",
+        "parameters": [
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gm/suggestions/{suggestion_id}/reject": {
+      "post": {
+        "summary": "Gm Reject Suggestion",
+        "operationId": "gm_reject_suggestion_api_v1_gm_suggestions__suggestion_id__reject_post",
+        "parameters": [
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "summary": "Get Settings",
+        "operationId": "get_settings_api_v1_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaygroundSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Settings",
+        "description": "Merge the patch over current settings, persist, and apply to the process.\n\nProcess-global by nature: flipping stub mode changes behaviour for every\ncaller of this server, not just this browser tab. That is acceptable for a\nplayground that binds to localhost with no auth layer, and it is what makes\nthe setting take effect without a restart.",
+        "operationId": "put_settings_api_v1_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaygroundSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Index",
+        "operationId": "index__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cards": {
+      "get": {
+        "summary": "Cards Page",
+        "operationId": "cards_page_cards_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/builder": {
+      "get": {
+        "summary": "Builder Page",
+        "operationId": "builder_page_builder_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentBuilderDetail": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "system_prompt": {
+            "type": "string",
+            "title": "System Prompt"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "temperature": {
+            "type": "number",
+            "title": "Temperature"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools"
+          },
+          "feeds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Feeds"
+          },
+          "card": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card"
+          },
+          "is_core": {
+            "type": "boolean",
+            "title": "Is Core"
+          },
+          "output_model_editable": {
+            "type": "boolean",
+            "title": "Output Model Editable"
+          },
+          "output_fields_summary": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Output Fields Summary"
+          },
+          "sample_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Input"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "system_prompt",
+          "model",
+          "temperature",
+          "tools",
+          "feeds",
+          "card",
+          "is_core",
+          "output_model_editable",
+          "output_fields_summary",
+          "sample_input"
+        ],
+        "title": "AgentBuilderDetail"
+      },
+      "AgentSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "AgentSummary"
+      },
+      "CardDetail": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "main_class": {
+            "type": "string",
+            "title": "Main Class"
+          },
+          "sub_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Class"
+          },
+          "portrait": {
+            "type": "string",
+            "title": "Portrait"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "xp": {
+            "type": "integer",
+            "title": "Xp"
+          },
+          "base_stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Base Stats"
+          },
+          "class_stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Class Stats"
+          },
+          "awaiting_respec": {
+            "type": "boolean",
+            "title": "Awaiting Respec",
+            "default": false
+          },
+          "backstory": {
+            "type": "string",
+            "title": "Backstory"
+          },
+          "unlock_table": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Unlock Table"
+          },
+          "tool_proficiency": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Tool Proficiency"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "title",
+          "main_class",
+          "sub_class",
+          "portrait",
+          "level",
+          "xp",
+          "base_stats",
+          "class_stats",
+          "backstory",
+          "unlock_table",
+          "tool_proficiency"
+        ],
+        "title": "CardDetail"
+      },
+      "CardSpec": {
+        "properties": {
+          "main_class": {
+            "type": "string",
+            "title": "Main Class"
+          },
+          "sub_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Class"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "backstory": {
+            "type": "string",
+            "title": "Backstory",
+            "default": ""
+          },
+          "portrait": {
+            "type": "string",
+            "title": "Portrait",
+            "default": ""
+          },
+          "base_stats": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Stats"
+          },
+          "unlock_table": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unlock Table"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level",
+            "default": 1
+          },
+          "xp": {
+            "type": "integer",
+            "title": "Xp",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "main_class"
+        ],
+        "title": "CardSpec"
+      },
+      "CardSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "main_class": {
+            "type": "string",
+            "title": "Main Class"
+          },
+          "sub_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Class"
+          },
+          "portrait": {
+            "type": "string",
+            "title": "Portrait"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "xp": {
+            "type": "integer",
+            "title": "Xp"
+          },
+          "base_stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Base Stats"
+          },
+          "class_stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Class Stats"
+          },
+          "awaiting_respec": {
+            "type": "boolean",
+            "title": "Awaiting Respec",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "title",
+          "main_class",
+          "sub_class",
+          "portrait",
+          "level",
+          "xp",
+          "base_stats",
+          "class_stats"
+        ],
+        "title": "CardSummary"
+      },
+      "ClassSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Stats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "title",
+          "description",
+          "stats"
+        ],
+        "title": "ClassSummary"
+      },
+      "CreateAgentRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "system_prompt": {
+            "type": "string",
+            "title": "System Prompt"
+          },
+          "output_fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldSpec"
+            },
+            "type": "array",
+            "title": "Output Fields"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": "qwen2.5:14b"
+          },
+          "temperature": {
+            "type": "number",
+            "title": "Temperature",
+            "default": 0.7
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools",
+            "default": []
+          },
+          "feeds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Feeds",
+            "default": []
+          },
+          "card": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CardSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Input"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "system_prompt",
+          "output_fields"
+        ],
+        "title": "CreateAgentRequest"
+      },
+      "CreateClassRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "CreateClassRequest"
+      },
+      "DuplicateAgentRequest": {
+        "properties": {
+          "new_name": {
+            "type": "string",
+            "title": "New Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_name"
+        ],
+        "title": "DuplicateAgentRequest"
+      },
+      "FieldSpec": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "integer",
+              "number",
+              "boolean",
+              "nested"
+            ],
+            "title": "Type"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          },
+          "is_list": {
+            "type": "boolean",
+            "title": "Is List",
+            "default": false
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "nested_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nested Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type"
+        ],
+        "title": "FieldSpec"
+      },
+      "GradeRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "tool_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Used"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "GradeRequest"
+      },
+      "GradeResponse": {
+        "properties": {
+          "xp_delta": {
+            "type": "integer",
+            "title": "Xp Delta"
+          },
+          "new_xp": {
+            "type": "integer",
+            "title": "New Xp"
+          },
+          "new_level": {
+            "type": "integer",
+            "title": "New Level"
+          },
+          "leveled_up": {
+            "type": "boolean",
+            "title": "Leveled Up"
+          },
+          "stat_deltas": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Stat Deltas"
+          },
+          "events_since_respec": {
+            "type": "integer",
+            "title": "Events Since Respec",
+            "default": 0
+          },
+          "respec_queued": {
+            "type": "boolean",
+            "title": "Respec Queued",
+            "default": false
+          },
+          "respec_processed": {
+            "type": "boolean",
+            "title": "Respec Processed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "xp_delta",
+          "new_xp",
+          "new_level",
+          "leveled_up",
+          "stat_deltas"
+        ],
+        "title": "GradeResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ModelCheckResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "message"
+        ],
+        "title": "ModelCheckResponse"
+      },
+      "PlaygroundSettings": {
+        "properties": {
+          "provider_url": {
+            "type": "string",
+            "title": "Provider Url",
+            "default": "http://localhost:11434/v1"
+          },
+          "default_model": {
+            "type": "string",
+            "title": "Default Model",
+            "default": "qwen2.5:14b"
+          },
+          "gm_model": {
+            "type": "string",
+            "title": "Gm Model",
+            "default": "qwen2.5:14b"
+          },
+          "stub_mode": {
+            "type": "boolean",
+            "title": "Stub Mode",
+            "default": false
+          },
+          "respec_threshold": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Respec Threshold",
+            "default": 12
+          },
+          "auto_process_respec": {
+            "type": "boolean",
+            "title": "Auto Process Respec",
+            "default": false
+          },
+          "suggestions_enabled": {
+            "type": "boolean",
+            "title": "Suggestions Enabled",
+            "default": true
+          },
+          "ntfy_url": {
+            "type": "string",
+            "title": "Ntfy Url",
+            "default": ""
+          },
+          "db_path": {
+            "type": "string",
+            "title": "Db Path",
+            "default": "agent_kit.db"
+          }
+        },
+        "type": "object",
+        "title": "PlaygroundSettings",
+        "description": "Server-side settings the playground UI can edit.\n\nThe UI's \"Base URL\" field is deliberately absent: that is which server the\nbrowser talks to, which only the browser can know. It stays client-side."
+      },
+      "RespecProcessResult": {
+        "properties": {
+          "processed": {
+            "type": "integer",
+            "title": "Processed"
+          },
+          "resynthesized": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Resynthesized"
+          },
+          "still_pending": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Still Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "processed",
+          "resynthesized",
+          "still_pending"
+        ],
+        "title": "RespecProcessResult"
+      },
+      "RespecQueueEntry": {
+        "properties": {
+          "agent_name": {
+            "type": "string",
+            "title": "Agent Name"
+          },
+          "band_signature": {
+            "type": "string",
+            "title": "Band Signature"
+          },
+          "pending_since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Since"
+          },
+          "trait_paragraph": {
+            "type": "string",
+            "title": "Trait Paragraph"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_name",
+          "band_signature",
+          "pending_since",
+          "trait_paragraph"
+        ],
+        "title": "RespecQueueEntry"
+      },
+      "RunRequest": {
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input",
+            "description": "Agent input as a JSON object; passed to Runner as-is"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "title": "RunRequest"
+      },
+      "RunResponse": {
+        "properties": {
+          "output": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Output"
+          },
+          "raw_prompt": {
+            "type": "string",
+            "title": "Raw Prompt"
+          },
+          "raw_response": {
+            "type": "string",
+            "title": "Raw Response"
+          },
+          "tools_used": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools Used",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "output",
+          "raw_prompt",
+          "raw_response"
+        ],
+        "title": "RunResponse"
+      },
+      "SettingsUpdate": {
+        "properties": {
+          "provider_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Url"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "gm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gm Model"
+          },
+          "stub_mode": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stub Mode"
+          },
+          "respec_threshold": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Respec Threshold"
+          },
+          "auto_process_respec": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Process Respec"
+          },
+          "suggestions_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions Enabled"
+          },
+          "ntfy_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfy Url"
+          },
+          "db_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Db Path"
+          }
+        },
+        "type": "object",
+        "title": "SettingsUpdate",
+        "description": "Every field optional so the UI can PATCH-style one toggle at a time."
+      },
+      "SuggestionSummary": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "agent_name": {
+            "type": "string",
+            "title": "Agent Name"
+          },
+          "current_system_prompt": {
+            "type": "string",
+            "title": "Current System Prompt"
+          },
+          "suggested_system_prompt": {
+            "type": "string",
+            "title": "Suggested System Prompt"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "agent_name",
+          "current_system_prompt",
+          "suggested_system_prompt",
+          "rationale",
+          "status",
+          "created_at"
+        ],
+        "title": "SuggestionSummary"
+      },
+      "UpdateAgentRequest": {
+        "properties": {
+          "system_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System Prompt"
+          },
+          "output_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Fields"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          },
+          "feeds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feeds"
+          },
+          "card": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CardSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Input"
+          }
+        },
+        "type": "object",
+        "title": "UpdateAgentRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -29,6 +29,7 @@ from agent_kit.errors import (
 from agent_kit.model_codegen import FieldSpec
 from agent_kit.registry import get_registry
 from agent_kit.runner import Runner
+from agent_kit.settings import PlaygroundSettings, apply_to_environment, load_settings, save_settings
 from agent_kit.tool_registry import get_tool_registry
 
 @asynccontextmanager
@@ -47,6 +48,11 @@ async def _lifespan(app: FastAPI):
     # existing tests all use plain TestClient(app) without a `with` block,
     # which never triggers lifespan at all, so they're unaffected.
     builder.reload_registries()
+    # Push any persisted settings into the environment before serving a single
+    # request, so STUB_AI_PROVIDERS / the provider URL / the db path are already
+    # what the user last saved. Same reasoning as the reload above: lifespan, not
+    # import time, so the test suite's own environment is never clobbered.
+    apply_to_environment(load_settings())
     yield
 
 
@@ -117,6 +123,11 @@ class GradeResponse(BaseModel):
     new_level: int
     leveled_up: bool
     stat_deltas: dict[str, int]
+    # v0.5 — surfaced so the Run screen can tell the user why the agent just
+    # entered the respec queue, instead of it silently appearing on the Roster.
+    events_since_respec: int = 0
+    respec_queued: bool = False
+    respec_processed: bool = False
 
 
 @app.get("/api/v1/agents", response_model=list[AgentSummary])
@@ -206,13 +217,36 @@ def grade_agent(agent_name: str, request: GradeRequest) -> GradeResponse:
     if definition.card is None:
         raise HTTPException(status_code=400, detail=f"agent '{agent_name}' has no card to grade")
 
-    get_card_store().ensure_seeded(agent_name, definition.card)
+    store = get_card_store()
+    store.ensure_seeded(agent_name, definition.card)
     try:
-        result = get_card_store().record_xp_event(agent_name, request.action, request.tool_used)
+        result = store.record_xp_event(agent_name, request.action, request.tool_used)
     except UnknownGradeActionError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    return GradeResponse(**result.model_dump())
+    # Respec threshold: enough grading has accumulated since the last synthesis
+    # that the cached trait paragraph no longer reflects how this agent is being
+    # steered. Flag it for respec — and, if configured, do the respec right here
+    # rather than waiting for someone to press Process Queue.
+    settings = load_settings()
+    events_since = store.count_events_since_synthesis(agent_name)
+    respec_queued = False
+    respec_processed = False
+    if events_since >= settings.respec_threshold:
+        traits = store.get_traits(agent_name)
+        if traits is not None and not traits.is_stale:
+            store.mark_traits_stale(agent_name)
+            respec_queued = True
+        if settings.auto_process_respec:
+            processed = _process_respec_queue()
+            respec_processed = agent_name in processed.resynthesized
+
+    return GradeResponse(
+        **result.model_dump(),
+        events_since_respec=events_since,
+        respec_queued=respec_queued,
+        respec_processed=respec_processed,
+    )
 
 
 # --- Agent Builder (v0.3) ---
@@ -465,14 +499,19 @@ def gm_queue() -> list[RespecQueueEntry]:
     ]
 
 
-@app.post("/api/v1/gm/queue/process", response_model=RespecProcessResult)
-def gm_queue_process() -> RespecProcessResult:
-    """Retry GM synthesis for every debuffed agent — the "as soon as the GM is
-    available" action. Explicit rather than a background thread, so it stays
-    observable and keeps agent-kit single-threaded."""
+def _process_respec_queue() -> RespecProcessResult:
+    """Retry GM synthesis for every debuffed agent.
+
+    Shared by the explicit `POST /gm/queue/process` and by the auto-process
+    setting. Still synchronous and in-request either way — the auto path just
+    calls this at the end of a grade instead of waiting for a button — so
+    agent-kit stays single-threaded and every respec remains observable in the
+    response that triggered it.
+    """
     from agent_kit.gm import synthesize_traits
     from agent_kit.stat_effects import band_signature, resolve_effects
 
+    settings = load_settings()
     store = get_card_store()
     resynthesized: list[str] = []
     still_pending: list[str] = []
@@ -507,7 +546,7 @@ def gm_queue_process() -> RespecProcessResult:
         store.store_traits(
             entry.agent_name, band_signature(resolved.selected_bands), synthesis.trait_paragraph
         )
-        if synthesis.suggested_system_prompt:
+        if synthesis.suggested_system_prompt and settings.suggestions_enabled:
             store.record_suggestion(
                 entry.agent_name, definition.system_prompt, synthesis.suggested_system_prompt,
                 "; ".join(synthesis.conflicts) or "the GM recommended a system prompt revision",
@@ -517,6 +556,11 @@ def gm_queue_process() -> RespecProcessResult:
     return RespecProcessResult(
         processed=len(queued), resynthesized=resynthesized, still_pending=still_pending
     )
+
+
+@app.post("/api/v1/gm/queue/process", response_model=RespecProcessResult)
+def gm_queue_process() -> RespecProcessResult:
+    return _process_respec_queue()
 
 
 @app.get("/api/v1/gm/suggestions", response_model=list[SuggestionSummary])
@@ -548,6 +592,42 @@ def gm_reject_suggestion(suggestion_id: int) -> SuggestionSummary:
     except AgentKitError as e:
         raise _handle_builder_error(e)
     return SuggestionSummary(**resolved.model_dump())
+
+
+# --- Server settings (v0.5) ---
+
+
+class SettingsUpdate(BaseModel):
+    """Every field optional so the UI can PATCH-style one toggle at a time."""
+
+    provider_url: str | None = None
+    default_model: str | None = None
+    gm_model: str | None = None
+    stub_mode: bool | None = None
+    respec_threshold: int | None = Field(default=None, ge=1, le=50)
+    auto_process_respec: bool | None = None
+    suggestions_enabled: bool | None = None
+    ntfy_url: str | None = None
+    db_path: str | None = None
+
+
+@app.get("/api/v1/settings", response_model=PlaygroundSettings)
+def get_settings() -> PlaygroundSettings:
+    return load_settings()
+
+
+@app.put("/api/v1/settings", response_model=PlaygroundSettings)
+def put_settings(request: SettingsUpdate) -> PlaygroundSettings:
+    """Merge the patch over current settings, persist, and apply to the process.
+
+    Process-global by nature: flipping stub mode changes behaviour for every
+    caller of this server, not just this browser tab. That is acceptable for a
+    playground that binds to localhost with no auth layer, and it is what makes
+    the setting take effect without a restart.
+    """
+    current = load_settings()
+    patch = request.model_dump(exclude_none=True)
+    return save_settings(current.model_copy(update=patch))
 
 
 _INDEX_HTML = """<!doctype html>

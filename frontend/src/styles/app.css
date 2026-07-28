@@ -1,0 +1,392 @@
+/* App-level styles.
+   The imported design expresses everything as inline `style` plus dc-runtime
+   `style-hover` / `style-focus` attributes, which have no React equivalent.
+   Recurring inline styles are lifted into the classes below with their exact
+   values, and the hover/focus variants become real CSS pseudo-classes. */
+
+html, body { margin: 0; height: 100%; }
+#root { height: 100%; }
+a { color: var(--color-accent-700); }
+a:hover { color: var(--color-accent-900); }
+textarea.input::placeholder { opacity: 0.45; }
+
+.ak-mono { font-family: ui-monospace, Menlo, monospace; }
+
+/* — app shell — */
+.ak-app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+.ak-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  height: 52px;
+  border-bottom: 1px solid var(--color-neutral-300);
+  flex: none;
+}
+.ak-brand {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ak-brand-sub {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.ak-tab {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 2px 4px;
+  color: var(--color-text);
+  border-bottom: 2px solid transparent;
+  opacity: 0.5;
+}
+.ak-tab:hover { opacity: 1; }
+.ak-tab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ak-tab[aria-current="page"] { border-bottom-color: var(--color-accent); opacity: 1; }
+
+.ak-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+.ak-status-dot {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+}
+
+/* — screens — */
+.ak-screen { overflow-y: auto; padding: 20px 24px 40px; min-height: 0; }
+.ak-screen-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 26px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.ak-screen-title.ak-sm { font-size: 24px; }
+.ak-screen-sub { margin: 0; font-size: 13px; opacity: 0.65; }
+.ak-kicker {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.ak-kicker-sm {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.ak-kicker-xs {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+.ak-stack { display: flex; flex-direction: column; }
+
+/* — run screen — */
+.ak-run-layout { display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
+.ak-sidebar {
+  border-right: 1px solid var(--color-neutral-300);
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ak-agent-item {
+  position: relative;
+  border: 1px solid var(--color-neutral-400);
+  background: transparent;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.ak-agent-item:hover { border-color: var(--color-accent); }
+.ak-agent-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ak-agent-item[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-100);
+}
+.ak-agent-name {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.ak-agent-item[aria-pressed="true"] .ak-agent-name { color: var(--color-accent-800); }
+
+.ak-blurb {
+  border: 1px solid var(--color-neutral-300);
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.65;
+  max-width: 860px;
+}
+
+.ak-code-input {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.ak-error-box {
+  border: 1px solid #c4938c;
+  background: #f7edeb;
+  color: #7c2d24;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  font-family: ui-monospace, Menlo, monospace;
+  white-space: pre-wrap;
+}
+.ak-error-text { font-size: 12px; color: #a03d33; }
+.ak-ok-text { font-size: 12px; color: var(--color-accent-700); font-family: ui-monospace, Menlo, monospace; }
+
+.ak-output-pre {
+  margin: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+/* — disclosure rows (raw prompt / raw response) — */
+.ak-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-neutral-300);
+  padding: 9px 2px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  opacity: 0.7;
+  text-align: left;
+  width: 100%;
+}
+.ak-disclosure:hover { opacity: 1; }
+.ak-disclosure:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ak-chevron { font-family: ui-monospace, Menlo, monospace; width: 10px; display: inline-block; }
+.ak-disclosure-body {
+  margin: 0;
+  padding: 12px 2px 14px;
+  border-bottom: 1px solid var(--color-neutral-300);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.8;
+}
+
+/* — roster — */
+.ak-gm-banner {
+  position: relative;
+  border: 1px solid var(--color-accent-700);
+  background: var(--color-accent-900);
+  color: var(--color-bg);
+  padding: 16px 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.ak-gm-configure {
+  flex: none;
+  background: none;
+  border: 1px solid var(--color-bg);
+  color: var(--color-bg);
+  padding: 5px 12px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ak-gm-configure:hover { background: rgba(255, 255, 255, 0.12); }
+.ak-gm-configure:focus-visible { outline: 2px solid var(--color-bg); outline-offset: 2px; }
+
+.ak-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.ak-roster-card {
+  position: relative;
+  border: 1px solid var(--color-neutral-400);
+  padding: 16px 18px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  grid-column: auto;
+}
+.ak-roster-card:hover { border-color: var(--color-accent); }
+.ak-roster-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ak-roster-card.ak-expanded { border-color: var(--color-accent); grid-column: 1 / -1; }
+
+.ak-respec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid #c9a227;
+  background: #fbf3d9;
+  color: #8a6a2f;
+  font-size: 11px;
+}
+
+.ak-meter { height: 6px; border: 1px solid var(--color-neutral-400); }
+.ak-meter-sm { height: 4px; border: 1px solid var(--color-neutral-400); }
+.ak-meter-fill { height: 100%; background: var(--color-accent); }
+
+.ak-api-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  opacity: 0.5;
+}
+.ak-api-toggle:hover { opacity: 0.8; }
+.ak-api-toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+.ak-snippet {
+  margin: 0;
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  padding: 10px 12px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.85;
+}
+
+/* — builder — */
+.ak-panel {
+  position: relative;
+  border: 1px solid var(--color-neutral-400);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ak-saved-banner {
+  position: relative;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-100);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.ak-note {
+  border: 1px solid var(--color-accent-300);
+  background: var(--color-accent-100);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.ak-field-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 15px;
+  line-height: 1;
+  color: inherit;
+}
+.ak-field-remove:hover { opacity: 1; }
+
+.ak-code-editor {
+  background: var(--color-neutral-900);
+  color: #d8e2ea;
+  border: 1px solid var(--color-neutral-700);
+  padding: 18px 20px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  min-height: 480px;
+  resize: vertical;
+  tab-size: 2;
+  white-space: pre;
+  width: 100%;
+}
+
+.ak-range { accent-color: var(--color-accent); width: 100%; margin-top: 8px; }
+
+.ak-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ak-checkbox-row.ak-disabled { cursor: not-allowed; opacity: 0.55; }
+
+.ak-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ak-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--color-neutral-300);
+  padding-top: 18px;
+}
+
+@media (max-width: 720px) {
+  .ak-run-layout { grid-template-columns: 1fr; }
+  .ak-two-col { grid-template-columns: 1fr; }
+}

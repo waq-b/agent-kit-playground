@@ -5,6 +5,7 @@ import pytest
 from agent_kit.card_definition import CardDefinition
 from agent_kit.card_store import CardStore
 from agent_kit.class_definition import ClassDefinition
+from agent_kit.registry import get_registry
 from tests.conftest import make_stat
 from agent_kit.errors import (
     AgentCardNotFoundError,
@@ -220,3 +221,81 @@ def test_unknown_suggestion_id_raises():
         store.get_suggestion(9999)
     with pytest.raises(GMSuggestionNotFoundError):
         store.resolve_suggestion(9999, "approved")
+
+
+def test_concurrent_reads_do_not_corrupt_the_shared_connection(tmp_path):
+    """A single sqlite3 connection is not safe for concurrent use.
+
+    FastAPI runs the playground's sync endpoints in a threadpool, so any two
+    overlapping requests can call execute() on the same connection at once. Left
+    unguarded that raises "bad parameter or other API misuse" — which is exactly
+    what the Roster hit once the frontend started fetching card details in
+    parallel. Every statement now goes through the store's lock.
+    """
+    import threading
+
+    store = CardStore(str(tmp_path / "concurrent.db"))
+    definition = get_registry().get("hello")
+    store.ensure_seeded("hello", definition.card)
+    store.store_traits("hello", "sig", "a paragraph")
+    store.record_suggestion("hello", "old", "new", "why")
+
+    errors: list[str] = []
+    barrier = threading.Barrier(8)
+
+    def hammer() -> None:
+        barrier.wait()  # maximise overlap rather than hoping for it
+        try:
+            for _ in range(200):
+                store.get_state("hello")
+                store.get_traits("hello")
+                store.list_stale_agents()
+                store.list_suggestions(None)
+                store.count_events_since_synthesis("hello")
+        except Exception as e:  # noqa: BLE001 — any exception is a failure here
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=hammer) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+
+
+def test_concurrent_reads_and_writes_do_not_corrupt_the_connection(tmp_path):
+    """Writes already took the lock; this pins that readers can't race them."""
+    import threading
+
+    store = CardStore(str(tmp_path / "mixed.db"))
+    definition = get_registry().get("hello")
+    store.ensure_seeded("hello", definition.card)
+
+    errors: list[str] = []
+    barrier = threading.Barrier(6)
+
+    def read() -> None:
+        barrier.wait()
+        try:
+            for _ in range(150):
+                store.get_state("hello")
+        except Exception as e:  # noqa: BLE001
+            errors.append(repr(e))
+
+    def write() -> None:
+        barrier.wait()
+        try:
+            for _ in range(150):
+                store.record_xp_event("hello", "thumbs_up")
+        except Exception as e:  # noqa: BLE001
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=read) for _ in range(3)]
+    threads += [threading.Thread(target=write) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []

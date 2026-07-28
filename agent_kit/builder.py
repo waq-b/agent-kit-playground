@@ -38,7 +38,7 @@ from agent_kit.errors import (
 from agent_kit.loader import DefinitionLoader
 from agent_kit.model_codegen import FieldSpec, generate_model_source, output_class_name
 from agent_kit.registry import get_registry
-from agent_kit.runner import OLLAMA_BASE_URL
+from agent_kit.runner import provider_base_url
 from agent_kit.stub_store import get_stub_store
 from agent_kit.tool_registry import get_tool_registry
 from agent_kit.yaml_io import write_yaml_file
@@ -437,7 +437,7 @@ def create_class(content: str, paths: BuilderPaths | None = None) -> Any:
 def check_model_reachable(model_name: str) -> dict[str, Any]:
     """Soft, best-effort check — never raises, never blocks save, works offline."""
     try:
-        response = httpx.get(f"{OLLAMA_BASE_URL}/models", timeout=2.0)
+        response = httpx.get(f"{provider_base_url()}/models", timeout=2.0)
         response.raise_for_status()
         available_models = {m["id"] for m in response.json().get("data", [])}
         if model_name in available_models:

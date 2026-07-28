@@ -108,7 +108,14 @@ class GMSuggestion(BaseModel):
 class CardStore:
     def __init__(self, db_path: str = _DEFAULT_DB_PATH) -> None:
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._lock = threading.Lock()
+        # Every statement — read or write — goes through this lock. A single
+        # sqlite3 connection is not safe for concurrent use even with
+        # check_same_thread=False: two threads calling execute() at once raise
+        # "bad parameter or other API misuse". FastAPI runs the playground's
+        # sync endpoints in a threadpool, so any two overlapping requests can
+        # do exactly that. Re-entrant so a locked method may call another one
+        # without deadlocking.
+        self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
@@ -137,22 +144,24 @@ class CardStore:
             self._conn.commit()
 
     def get_state(self, agent_name: str) -> CardState:
-        row = self._conn.execute(
-            "SELECT level, xp FROM agents WHERE agent_name = ?", (agent_name,)
-        ).fetchone()
-        if row is None:
-            raise AgentCardNotFoundError(f"no card state seeded for agent '{agent_name}'")
-        level, xp = row
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT level, xp FROM agents WHERE agent_name = ?", (agent_name,)
+            ).fetchone()
+            if row is None:
+                raise AgentCardNotFoundError(f"no card state seeded for agent '{agent_name}'")
+            level, xp = row
 
-        stat_rows = self._conn.execute(
-            "SELECT stat_name, value FROM agent_stats WHERE agent_name = ?", (agent_name,)
-        ).fetchall()
+            stat_rows = self._conn.execute(
+                "SELECT stat_name, value FROM agent_stats WHERE agent_name = ?", (agent_name,)
+            ).fetchall()
+            tool_rows = self._conn.execute(
+                "SELECT tool_name, xp, tier FROM tool_proficiency WHERE agent_name = ?",
+                (agent_name,),
+            ).fetchall()
+
         base_stats = {name: value for name, value in stat_rows if name in BASE_STAT_NAMES}
         class_stats = {name: value for name, value in stat_rows if name not in BASE_STAT_NAMES}
-
-        tool_rows = self._conn.execute(
-            "SELECT tool_name, xp, tier FROM tool_proficiency WHERE agent_name = ?", (agent_name,)
-        ).fetchall()
         tool_proficiency = {name: ToolProficiency(xp=xp, tier=tier) for name, xp, tier in tool_rows}
 
         return CardState(
@@ -218,11 +227,12 @@ class CardStore:
     # --- GM trait cache, respec debuff, and suggestions (v0.4) ---
 
     def get_traits(self, agent_name: str) -> TraitState | None:
-        row = self._conn.execute(
-            "SELECT agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since "
-            "FROM agent_traits WHERE agent_name = ?",
-            (agent_name,),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since "
+                "FROM agent_traits WHERE agent_name = ?",
+                (agent_name,),
+            ).fetchone()
         if row is None:
             return None
         return TraitState(
@@ -261,10 +271,11 @@ class CardStore:
 
     def list_stale_agents(self) -> list[TraitState]:
         """The respec queue: everything waiting for the GM to come back."""
-        rows = self._conn.execute(
-            "SELECT agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since "
-            "FROM agent_traits WHERE is_stale = 1 ORDER BY pending_since"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since "
+                "FROM agent_traits WHERE is_stale = 1 ORDER BY pending_since"
+            ).fetchall()
         return [
             TraitState(
                 agent_name=r[0], band_signature=r[1], trait_paragraph=r[2],
@@ -272,6 +283,26 @@ class CardStore:
             )
             for r in rows
         ]
+
+    def count_events_since_synthesis(self, agent_name: str) -> int:
+        """Grade events recorded since this agent's traits were last synthesized.
+
+        The respec-threshold setting counts against this. `xp_events` already
+        timestamps every grade, so no new counter column is needed — the count
+        resets naturally whenever `store_traits` writes a new `synthesized_at`.
+        Agents with no traits row yet return 0: there is nothing to re-synthesize,
+        so there is nothing for a threshold to trip.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT synthesized_at FROM agent_traits WHERE agent_name = ?", (agent_name,)
+            ).fetchone()
+            if row is None:
+                return 0
+            return self._conn.execute(
+                "SELECT COUNT(*) FROM xp_events WHERE agent_name = ? AND created_at > ?",
+                (agent_name, row[0]),
+            ).fetchone()[0]
 
     def record_suggestion(
         self, agent_name: str, current_system_prompt: str, suggested_system_prompt: str, rationale: str
@@ -291,11 +322,12 @@ class CardStore:
         return self.get_suggestion(suggestion_id)
 
     def get_suggestion(self, suggestion_id: int) -> GMSuggestion:
-        row = self._conn.execute(
-            "SELECT id, agent_name, current_system_prompt, suggested_system_prompt, rationale, status, created_at "
-            "FROM gm_suggestions WHERE id = ?",
-            (suggestion_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, agent_name, current_system_prompt, suggested_system_prompt, rationale, status, created_at "
+                "FROM gm_suggestions WHERE id = ?",
+                (suggestion_id,),
+            ).fetchone()
         if row is None:
             raise GMSuggestionNotFoundError(f"no GM suggestion with id {suggestion_id}")
         return GMSuggestion(
@@ -314,12 +346,14 @@ class CardStore:
             params = (status,)
         query += " ORDER BY created_at DESC"
 
+        with self._lock:
+            rows = self._conn.execute(query, params).fetchall()
         return [
             GMSuggestion(
                 id=r[0], agent_name=r[1], current_system_prompt=r[2],
                 suggested_system_prompt=r[3], rationale=r[4], status=r[5], created_at=r[6],
             )
-            for r in self._conn.execute(query, params).fetchall()
+            for r in rows
         ]
 
     def resolve_suggestion(self, suggestion_id: int, status: str) -> GMSuggestion:
@@ -353,3 +387,15 @@ def get_card_store() -> CardStore:
     if _card_store is None:
         _card_store = CardStore(os.environ.get("AGENT_KIT_DB_PATH", _DEFAULT_DB_PATH))
     return _card_store
+
+
+def reset_card_store() -> None:
+    """Drop the singleton so the next `get_card_store()` re-reads AGENT_KIT_DB_PATH.
+
+    Needed because the db path is bound once at construction. `settings.py`
+    calls this when the configured path actually changes; nothing else should.
+    """
+    global _card_store
+    if _card_store is not None:
+        _card_store.close()
+        _card_store = None

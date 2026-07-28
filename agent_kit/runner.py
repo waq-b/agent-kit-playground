@@ -32,6 +32,7 @@ from agent_kit.stat_effects import (
     fallback_trait_paragraph,
     resolve_effects,
 )
+from agent_kit.settings import load_settings
 from agent_kit.stat_mapping import compute_runtime_params
 from agent_kit.stub_store import get_stub_store
 from agent_kit.tool_registry import get_tool_registry
@@ -39,6 +40,16 @@ from agent_kit.tool_registry import get_tool_registry
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
+
+def provider_base_url() -> str:
+    """The OpenAI-compatible endpoint agents and the GM talk to.
+
+    Read per call rather than captured at import, so the playground's Settings
+    screen can repoint it without a restart. `OLLAMA_BASE_URL` remains the
+    default and the name other modules used before v0.5.
+    """
+    return os.environ.get("AGENT_KIT_PROVIDER_URL", OLLAMA_BASE_URL)
 
 
 def _tolerate_feed_failures(fn: Callable) -> Callable:
@@ -189,7 +200,7 @@ class Runner:
             return paragraph
 
         store.store_traits(definition.name, signature, synthesis.trait_paragraph)
-        if synthesis.suggested_system_prompt:
+        if synthesis.suggested_system_prompt and load_settings().suggestions_enabled:
             store.record_suggestion(
                 definition.name,
                 definition.system_prompt,
@@ -236,7 +247,7 @@ class Runner:
 
         model = OpenAIChatModel(
             definition.model,
-            provider=OpenAIProvider(base_url=OLLAMA_BASE_URL, api_key="ollama"),
+            provider=OpenAIProvider(base_url=provider_base_url(), api_key="ollama"),
         )
         agent = Agent(
             model=model,
@@ -257,7 +268,7 @@ class Runner:
             result = agent.run_sync(prompt)
         except ModelAPIError as e:
             raise AgentConnectionError(
-                f"could not reach model provider at {OLLAMA_BASE_URL} for agent "
+                f"could not reach model provider at {provider_base_url()} for agent "
                 f"'{definition.name}': {e}"
             ) from e
         except AgentRunError as e:

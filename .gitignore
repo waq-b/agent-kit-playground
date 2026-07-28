@@ -7,3 +7,9 @@ __pycache__/
 .DS_Store
 agent_kit.db
 agent_kit_data/
+
+# frontend/openapi.json and src/api/schema.d.ts are generated but committed, so
+# the backend contract the TS types came from is visible in review.
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from agent_kit.errors import GMUnavailableError
-from agent_kit.runner import OLLAMA_BASE_URL
+from agent_kit.runner import provider_base_url
 from agent_kit.stat_effects import PromptBand
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def _build_gm_agent() -> Agent:
 
             model = OpenAIChatModel(
                 model_name,
-                provider=OpenAIProvider(base_url=OLLAMA_BASE_URL, api_key=api_key or "ollama"),
+                provider=OpenAIProvider(base_url=provider_base_url(), api_key=api_key or "ollama"),
             )
         elif provider_name == "anthropic":
             if not api_key:
