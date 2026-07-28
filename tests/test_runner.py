@@ -11,6 +11,9 @@ from agent_kit.class_definition import ClassDefinition
 from agent_kit.definition import AgentDefinition
 from agent_kit.errors import NoFixtureError, TemperatureRangeError, TypeMismatchError
 from agent_kit.runner import Runner
+from agent_kit.errors import GMUnavailableError
+from agent_kit.gm import GMSynthesis
+from agent_kit.stat_effects import PromptBand, RuntimeCurve, StatDefinition
 from agent_kit.stat_mapping import compute_temperature
 from agent_kit.stub_store import get_stub_store
 
@@ -110,33 +113,194 @@ def test_card_none_agent_calls_pydantic_ai_agent_with_none_kwargs(monkeypatch):
     assert kwargs["model_settings"] == {"temperature": 0.7}
 
 
-def test_card_present_agent_receives_stat_derived_kwargs(monkeypatch):
-    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
-
-    main_class = ClassDefinition(name="greeter", title="Greeter", description="d", stats={"warmth": 60}, source_path=Path("x.yaml"))
+def make_carded_definition(stat_value: int = 60, curve: RuntimeCurve | None = None) -> AgentDefinition:
+    stat = StatDefinition(
+        value=stat_value,
+        prompt_effect=(PromptBand("low", "You are reserved."), PromptBand("high", "You are warm.")),
+        runtime_effect={"temperature": curve or RuntimeCurve(at_0=0.0, at_100=0.0)},
+    )
+    main_class = ClassDefinition(
+        name="greeter", title="Greeter", description="d",
+        stats={"warmth": stat}, source_path=Path("x.yaml"),
+    )
     card = CardDefinition(
         title="Greeter", backstory="", portrait="", main_class=main_class, sub_class=None,
-        class_stats={"warmth": 60},
+        class_stats={"warmth": stat_value},
         base_stats={"accuracy": 100, "insight": 50, "speed": 100, "reliability": 100},
         unlock_table=(), starting_level=1, starting_xp=0,
     )
-    definition = AgentDefinition(
+    return AgentDefinition(
         name=AGENT_NAME, description="d", system_prompt="sp", model="qwen2.5:14b",
         temperature=0.7, tools=[], output_model=Out, source_path=Path("x.yaml"), card=card,
     )
-    fake_store = CardStore(":memory:")
 
-    with patch("agent_kit.runner.get_card_store", return_value=fake_store), \
+
+def _run_carded(definition, store, monkeypatch, gm_result=None, gm_error=None):
+    """Run a card-bearing agent live with the model and GM both patched out."""
+    import agent_kit.gm as gm_module
+
+    if gm_error is not None:
+        def _fake_synth(*args, **kwargs):
+            raise gm_error
+    else:
+        def _fake_synth(*args, **kwargs):
+            return gm_result
+
+    monkeypatch.setattr(gm_module, "synthesize_traits", _fake_synth)
+
+    with patch("agent_kit.runner.get_card_store", return_value=store), \
          patch("agent_kit.runner.Agent") as mock_agent_cls, \
          patch("agent_kit.runner.OpenAIChatModel"), \
          patch("agent_kit.runner.OpenAIProvider"):
         mock_agent_cls.return_value.run_sync.return_value = _fake_run_result(Out(greeting="hi"))
-        Runner().execute(definition, {"name": "x"})
+        runner = Runner()
+        runner.execute(definition, {"name": "x"})
+    return runner, mock_agent_cls
+
+
+def test_card_present_agent_receives_stat_derived_kwargs(monkeypatch):
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+
+    runner, mock_agent_cls = _run_carded(
+        make_carded_definition(), CardStore(":memory:"), monkeypatch,
+        gm_result=GMSynthesis(trait_paragraph="You are warm."),
+    )
 
     _, kwargs = mock_agent_cls.call_args
     assert kwargs["retries"] == 5  # accuracy=100 -> compute_retries(100)
     assert kwargs["max_concurrency"] == 4  # speed=100 -> compute_max_concurrency(100)
+    # zero-delta curve, so the base-stat temperature is unchanged
     assert kwargs["model_settings"]["temperature"] == compute_temperature(0.7, reliability=100)
+
+
+def test_class_stat_runtime_deltas_are_layered_onto_base_params(monkeypatch):
+    """The core v0.4 behaviour: a class stat's curve shifts the base-stat value."""
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+
+    base_temperature = compute_temperature(0.7, reliability=100)
+    # warmth=100 with at_100=+0.5 -> a +0.5 delta on top of the base value
+    definition = make_carded_definition(stat_value=100, curve=RuntimeCurve(at_0=0.0, at_100=0.5))
+
+    _, mock_agent_cls = _run_carded(
+        definition, CardStore(":memory:"), monkeypatch,
+        gm_result=GMSynthesis(trait_paragraph="You are warm."),
+    )
+
+    _, kwargs = mock_agent_cls.call_args
+    assert kwargs["model_settings"]["temperature"] == pytest.approx(base_temperature + 0.5)
+
+
+def test_trait_paragraph_is_appended_to_system_prompt(monkeypatch):
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+
+    runner, mock_agent_cls = _run_carded(
+        make_carded_definition(), CardStore(":memory:"), monkeypatch,
+        gm_result=GMSynthesis(trait_paragraph="You are relentlessly warm."),
+    )
+
+    _, kwargs = mock_agent_cls.call_args
+    assert kwargs["system_prompt"].startswith("sp")  # author's own prompt is preserved verbatim
+    assert "Character traits:" in kwargs["system_prompt"]
+    assert "You are relentlessly warm." in kwargs["system_prompt"]
+    assert runner.last_trait_paragraph == "You are relentlessly warm."
+    assert runner.last_traits_stale is False
+
+
+def test_gm_synthesis_is_cached_and_not_repeated(monkeypatch):
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+    store = CardStore(":memory:")
+    definition = make_carded_definition()
+
+    calls = []
+
+    import agent_kit.gm as gm_module
+
+    def _counting_synth(*args, **kwargs):
+        calls.append(1)
+        return GMSynthesis(trait_paragraph="Synthesized once.")
+
+    monkeypatch.setattr(gm_module, "synthesize_traits", _counting_synth)
+
+    for _ in range(3):
+        with patch("agent_kit.runner.get_card_store", return_value=store), \
+             patch("agent_kit.runner.Agent") as mock_agent_cls, \
+             patch("agent_kit.runner.OpenAIChatModel"), \
+             patch("agent_kit.runner.OpenAIProvider"):
+            mock_agent_cls.return_value.run_sync.return_value = _fake_run_result(Out(greeting="hi"))
+            Runner().execute(definition, {"name": "x"})
+
+    assert len(calls) == 1, "GM must only be called once while the band signature is unchanged"
+
+
+def test_gm_suggestion_is_recorded_but_never_auto_applied(monkeypatch):
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+    store = CardStore(":memory:")
+    definition = make_carded_definition()
+
+    _run_carded(
+        definition, store, monkeypatch,
+        gm_result=GMSynthesis(
+            trait_paragraph="p", conflicts=["clash"], suggested_system_prompt="a better prompt"
+        ),
+    )
+
+    suggestions = store.list_suggestions("pending")
+    assert len(suggestions) == 1
+    assert suggestions[0].suggested_system_prompt == "a better prompt"
+    # the definition's own prompt is untouched — approval is a separate, human step
+    assert definition.system_prompt == "sp"
+
+
+def test_gm_failure_with_warm_cache_reuses_it_and_applies_debuff(monkeypatch):
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+    store = CardStore(":memory:")
+    definition = make_carded_definition()
+
+    # first run succeeds and caches
+    _run_carded(definition, store, monkeypatch, gm_result=GMSynthesis(trait_paragraph="Good paragraph."))
+    store.mark_traits_stale(definition.name)  # force a re-synthesis attempt
+
+    runner, mock_agent_cls = _run_carded(
+        definition, store, monkeypatch, gm_error=GMUnavailableError("GM down")
+    )
+
+    assert runner.last_trait_paragraph == "Good paragraph."  # last good prompt reused
+    assert runner.last_traits_stale is True
+    assert [t.agent_name for t in store.list_stale_agents()] == [definition.name]
+    assert "Good paragraph." in mock_agent_cls.call_args[1]["system_prompt"]
+
+
+def test_gm_failure_with_cold_cache_still_runs_via_deterministic_fallback(monkeypatch):
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+    store = CardStore(":memory:")
+    definition = make_carded_definition(stat_value=100)  # -> "high" band
+
+    runner, mock_agent_cls = _run_carded(
+        definition, store, monkeypatch, gm_error=GMUnavailableError("GM down")
+    )
+
+    # the run completes rather than failing, using the crude concatenation
+    assert runner.last_trait_paragraph == "You are warm."
+    assert runner.last_traits_stale is True
+    # and it still lands in the respec queue despite never having a good paragraph
+    assert [t.agent_name for t in store.list_stale_agents()] == [definition.name]
+
+
+def test_stub_mode_uses_fallback_and_never_calls_the_gm(monkeypatch):
+    """Stub mode must stay fully offline — no GM, no model, no network."""
+    monkeypatch.setenv("STUB_AI_PROVIDERS", "1")
+    get_stub_store().register(AGENT_NAME, Out(greeting="hi"))
+
+    import agent_kit.gm as gm_module
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("the GM must never be called in stub mode")
+
+    monkeypatch.setattr(gm_module, "synthesize_traits", _boom)
+
+    runner = Runner()
+    runner.execute(make_carded_definition(), {"name": "x"})
+    assert runner.last_traits_stale is False
 
 
 def test_last_tools_used_populated_from_tool_call_parts(monkeypatch):

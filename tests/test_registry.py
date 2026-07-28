@@ -50,3 +50,29 @@ def test_list_returns_exactly_name_and_description_per_entry():
     assert len(listing) == 2
     for entry in listing:
         assert set(entry.keys()) == {"name", "description"}
+
+
+def test_replace_overwrites_existing_entry_without_raising():
+    r = AgentRegistry()
+    r.register(make("a", "original.yaml"))
+    r.replace(make("a", "edited.yaml"))
+    assert r.get("a").source_path == Path("edited.yaml")
+
+
+def test_replace_works_on_a_fresh_name_too():
+    r = AgentRegistry()
+    r.replace(make("a"))
+    assert r.get("a").name == "a"
+
+
+def test_remove_deletes_existing_entry():
+    r = AgentRegistry()
+    r.register(make("a"))
+    r.remove("a")
+    with pytest.raises(AgentNotFoundError):
+        r.get("a")
+
+
+def test_remove_is_a_noop_for_unknown_name():
+    r = AgentRegistry()
+    r.remove("nope")  # must not raise

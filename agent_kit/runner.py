@@ -15,14 +15,22 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from agent_kit.card_store import get_card_store
+from agent_kit.card_store import CardStore, get_card_store
 from agent_kit.definition import AgentDefinition
 from agent_kit.errors import (
     AgentConnectionError,
     AgentKitError,
     FeedFetchError,
+    GMUnavailableError,
     TemperatureRangeError,
     TypeMismatchError,
+)
+from agent_kit.stat_effects import (
+    ResolvedEffects,
+    apply_runtime_deltas,
+    band_signature,
+    fallback_trait_paragraph,
+    resolve_effects,
 )
 from agent_kit.stat_mapping import compute_runtime_params
 from agent_kit.stub_store import get_stub_store
@@ -70,6 +78,8 @@ class Runner:
         self.last_raw_prompt: str = ""
         self.last_raw_response: str = ""
         self.last_tools_used: list[str] = []
+        self.last_trait_paragraph: str = ""
+        self.last_traits_stale: bool = False
 
     def execute(self, definition: AgentDefinition, input_data: dict[str, Any]) -> BaseModel:
         if not (0.0 <= definition.temperature <= 2.0):
@@ -100,6 +110,8 @@ class Runner:
         self.last_raw_prompt = f"[stub mode] input: {input_data}"
         self.last_raw_response = f"[stub mode] fixture: {validated.model_dump()}"
         self.last_tools_used = []
+        self.last_trait_paragraph = ""
+        self.last_traits_stale = False
         return validated
 
     def _ensure_feeds_reachable(self, definition: AgentDefinition) -> None:
@@ -127,6 +139,66 @@ class Runner:
                 f"all {len(definition.feeds)} configured feed(s) were unreachable"
             )
 
+    def _resolve_trait_paragraph(
+        self, definition: AgentDefinition, resolved: ResolvedEffects, store: CardStore
+    ) -> str:
+        """Get the character-trait paragraph to append to the system prompt.
+
+        Order: stub mode -> deterministic fallback; warm, matching, non-stale
+        cache -> cached paragraph; otherwise -> GM synthesis. If the GM is
+        unavailable the run still proceeds: the last good paragraph is reused
+        (or the deterministic fallback if there has never been one) and the
+        agent is flagged as needing a respec and queued for retry.
+        """
+        signature = band_signature(resolved.selected_bands)
+        cached = store.get_traits(definition.name)
+
+        if os.environ.get("STUB_AI_PROVIDERS") == "1":
+            self.last_traits_stale = False
+            return fallback_trait_paragraph(resolved.selected_bands)
+
+        if cached is not None and cached.band_signature == signature and not cached.is_stale:
+            self.last_traits_stale = False
+            return cached.trait_paragraph
+
+        # Lazy import: gm.py imports OLLAMA_BASE_URL from this module.
+        from agent_kit.gm import synthesize_traits
+
+        try:
+            synthesis = synthesize_traits(
+                definition.name,
+                definition.system_prompt,
+                resolved.selected_bands,
+                definition.card.title if definition.card else "",
+            )
+        except GMUnavailableError as e:
+            logger.warning(
+                "GM unavailable for agent '%s'; running with a stale character sheet: %s",
+                definition.name, e,
+            )
+            self.last_traits_stale = True
+            if cached is not None:
+                store.mark_traits_stale(definition.name)
+                return cached.trait_paragraph
+            # Never synthesized before: cache the crude fallback so the agent
+            # still lands in the respec queue and has something to serve until
+            # the GM returns.
+            paragraph = fallback_trait_paragraph(resolved.selected_bands)
+            store.store_traits(definition.name, signature, paragraph)
+            store.mark_traits_stale(definition.name)
+            return paragraph
+
+        store.store_traits(definition.name, signature, synthesis.trait_paragraph)
+        if synthesis.suggested_system_prompt:
+            store.record_suggestion(
+                definition.name,
+                definition.system_prompt,
+                synthesis.suggested_system_prompt,
+                "; ".join(synthesis.conflicts) or "the GM recommended a system prompt revision",
+            )
+        self.last_traits_stale = False
+        return synthesis.trait_paragraph
+
     def _execute_live(self, definition: AgentDefinition, input_data: dict[str, Any]) -> BaseModel:
         if definition.feeds:
             self._ensure_feeds_reachable(definition)
@@ -135,6 +207,9 @@ class Runner:
 
         model_settings = {"temperature": definition.temperature}
         retries = tool_timeout = max_concurrency = None
+        system_prompt = definition.system_prompt
+        self.last_trait_paragraph = ""
+        self.last_traits_stale = False
 
         if definition.card is not None:
             store = get_card_store()
@@ -142,6 +217,20 @@ class Runner:
             state = store.get_state(definition.name)
             tool_tiers = {name: tp.tier for name, tp in state.tool_proficiency.items()}
             params = compute_runtime_params(definition.temperature, state.base_stats, tool_tiers)
+
+            # v0.4: custom class stats layer their own deltas on top of the
+            # base-stat params, and contribute the character-trait paragraph.
+            stat_defs = {
+                **definition.card.main_class.stats,
+                **(definition.card.sub_class.stats if definition.card.sub_class else {}),
+            }
+            resolved = resolve_effects(stat_defs, state.class_stats)
+            params = apply_runtime_deltas(params, resolved.runtime_deltas)
+
+            self.last_trait_paragraph = self._resolve_trait_paragraph(definition, resolved, store)
+            if self.last_trait_paragraph:
+                system_prompt = f"{system_prompt}\n\nCharacter traits:\n{self.last_trait_paragraph}"
+
             model_settings["temperature"] = params.temperature
             retries, tool_timeout, max_concurrency = params.retries, params.tool_timeout, params.max_concurrency
 
@@ -152,7 +241,7 @@ class Runner:
         agent = Agent(
             model=model,
             output_type=definition.output_model,
-            system_prompt=definition.system_prompt,
+            system_prompt=system_prompt,
             tools=tools,
             model_settings=model_settings,
             retries=retries,

@@ -5,14 +5,19 @@ import pytest
 from agent_kit.card_definition import CardDefinition
 from agent_kit.card_store import CardStore
 from agent_kit.class_definition import ClassDefinition
-from agent_kit.errors import AgentCardNotFoundError, UnknownGradeActionError
+from tests.conftest import make_stat
+from agent_kit.errors import (
+    AgentCardNotFoundError,
+    GMSuggestionNotFoundError,
+    UnknownGradeActionError,
+)
 
 SOURCE = Path("test.yaml")
 
 
 def make_card(base_stats=None) -> CardDefinition:
     main_class = ClassDefinition(
-        name="greeter", title="Greeter", description="d", stats={"warmth": 65}, source_path=SOURCE
+        name="greeter", title="Greeter", description="d", stats={"warmth": make_stat(65)}, source_path=SOURCE
     )
     return CardDefinition(
         title="Greeter", backstory="b", portrait="👋", main_class=main_class, sub_class=None,
@@ -127,6 +132,91 @@ def test_clear_removes_all_state():
     store = CardStore(":memory:")
     store.ensure_seeded("hello", make_card())
     store.record_xp_event("hello", "thumbs_up", tool_used="fetch_rss_feed")
+    store.store_traits("hello", "sig", "paragraph")
+    store.record_suggestion("hello", "old", "new", "why")
     store.clear()
     with pytest.raises(AgentCardNotFoundError):
         store.get_state("hello")
+    assert store.get_traits("hello") is None
+    assert store.list_suggestions(None) == []
+
+
+# --- GM trait cache / respec debuff / suggestions (v0.4) ---
+
+
+def test_get_traits_is_none_before_any_synthesis():
+    assert CardStore(":memory:").get_traits("hello") is None
+
+
+def test_store_and_get_traits_round_trip():
+    store = CardStore(":memory:")
+    store.store_traits("hello", "warmth=high", "You are warm.")
+    traits = store.get_traits("hello")
+    assert traits.trait_paragraph == "You are warm."
+    assert traits.band_signature == "warmth=high"
+    assert traits.is_stale is False
+    assert traits.pending_since is None
+
+
+def test_mark_traits_stale_applies_debuff_and_queues():
+    store = CardStore(":memory:")
+    store.store_traits("hello", "sig", "paragraph")
+    store.mark_traits_stale("hello")
+
+    traits = store.get_traits("hello")
+    assert traits.is_stale is True
+    assert traits.pending_since is not None
+    assert [t.agent_name for t in store.list_stale_agents()] == ["hello"]
+
+
+def test_repeated_failures_preserve_original_queue_position():
+    """pending_since must not reset on each retry, or a repeatedly-failing agent
+    would keep jumping to the back of the queue."""
+    store = CardStore(":memory:")
+    store.store_traits("hello", "sig", "paragraph")
+    store.mark_traits_stale("hello")
+    first = store.get_traits("hello").pending_since
+    store.mark_traits_stale("hello")
+    assert store.get_traits("hello").pending_since == first
+
+
+def test_store_traits_clears_debuff_and_queue():
+    store = CardStore(":memory:")
+    store.store_traits("hello", "old-sig", "old paragraph")
+    store.mark_traits_stale("hello")
+    store.store_traits("hello", "new-sig", "new paragraph")
+
+    traits = store.get_traits("hello")
+    assert traits.is_stale is False
+    assert traits.pending_since is None
+    assert traits.trait_paragraph == "new paragraph"
+    assert store.list_stale_agents() == []
+
+
+def test_mark_traits_stale_is_a_noop_without_a_cached_row():
+    """Nothing to flag when the GM failed before any successful synthesis —
+    the caller uses the deterministic fallback for that run instead."""
+    store = CardStore(":memory:")
+    store.mark_traits_stale("never_cached")
+    assert store.get_traits("never_cached") is None
+    assert store.list_stale_agents() == []
+
+
+def test_suggestion_lifecycle():
+    store = CardStore(":memory:")
+    suggestion = store.record_suggestion("hello", "old prompt", "new prompt", "rationale")
+    assert suggestion.status == "pending"
+    assert [s.id for s in store.list_suggestions()] == [suggestion.id]
+
+    resolved = store.resolve_suggestion(suggestion.id, "approved")
+    assert resolved.status == "approved"
+    assert store.list_suggestions("pending") == []
+    assert len(store.list_suggestions(None)) == 1
+
+
+def test_unknown_suggestion_id_raises():
+    store = CardStore(":memory:")
+    with pytest.raises(GMSuggestionNotFoundError):
+        store.get_suggestion(9999)
+    with pytest.raises(GMSuggestionNotFoundError):
+        store.resolve_suggestion(9999, "approved")

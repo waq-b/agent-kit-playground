@@ -23,6 +23,7 @@ from agent_kit.card_definition import CardDefinition
 from agent_kit.card_store import CardStore
 from agent_kit.class_definition import ClassDefinition
 from agent_kit.class_registry import get_class_registry
+from tests.conftest import make_stat
 from agent_kit.definition import AgentDefinition
 from agent_kit.errors import DuplicateAgentError, TemperatureRangeError, UnknownGradeActionError
 from agent_kit.loader import DefinitionLoader
@@ -184,7 +185,8 @@ _KNOWN_GRADE_ACTIONS = ("thumbs_up", "thumbs_down", "more_like_this", "less_like
 
 def _make_test_card() -> CardDefinition:
     main_class = ClassDefinition(
-        name="p11_class", title="P11 Class", description="d", stats={"warmth": 50}, source_path=Path("x.yaml")
+        name="p11_class", title="P11 Class", description="d",
+        stats={"warmth": make_stat(50)}, source_path=Path("x.yaml"),
     )
     return CardDefinition(
         title="P11 Class", backstory="", portrait="", main_class=main_class, sub_class=None,

@@ -6,3 +6,4 @@ __pycache__/
 .hypothesis/
 .DS_Store
 agent_kit.db
+agent_kit_data/

@@ -94,3 +94,59 @@ class UnknownGradeActionError(AgentKitError):
 
 class AgentCardNotFoundError(AgentKitError):
     """Raised when CardStore is queried for an agent with no seeded card state."""
+
+
+class InvalidAgentNameError(AgentKitError):
+    """Raised when a builder-supplied agent name is not a usable identifier."""
+
+
+class InvalidFieldSpecError(AgentKitError):
+    """Raised when an output-model FieldSpec is structurally malformed."""
+
+
+class DuplicateFieldNameError(AgentKitError):
+    """Raised when two fields at the same level of an output-model spec share a name."""
+
+
+class ReservedFieldNameError(AgentKitError):
+    """Raised when an output-model field name collides with a BaseModel/model_* reserved name."""
+
+
+class NestingDepthExceededError(AgentKitError):
+    """Raised when an output-model field spec nests more than one level deep."""
+
+
+class EmptyOutputModelError(AgentKitError):
+    """Raised when an output-model spec has zero fields."""
+
+
+class OutputModelNotEditableError(AgentKitError):
+    """Raised when an update targets the output schema of a hand-written (non-builder-generated) agent."""
+
+
+class CoreAgentConfirmationRequiredError(AgentKitError):
+    """Raised when deleting a core demo agent (hello/news) without the extra confirm_core flag."""
+
+
+class InvalidStatEffectError(AgentKitError):
+    """Raised when a class stat's effect definition is structurally malformed."""
+
+
+class MissingPromptEffectError(AgentKitError):
+    """Raised when a class stat has no prompt_effect bands."""
+
+
+class MissingRuntimeEffectError(AgentKitError):
+    """Raised when a class stat has no runtime_effect curves."""
+
+
+class UnknownRuntimeParameterError(AgentKitError):
+    """Raised when a runtime_effect targets a parameter outside the known RuntimeParams fields."""
+
+
+class GMUnavailableError(AgentKitError):
+    """Raised when the GM (Game Master) synthesis call cannot be completed."""
+
+
+class GMSuggestionNotFoundError(AgentKitError):
+    """Raised when a GM suggestion id is not present in the store."""

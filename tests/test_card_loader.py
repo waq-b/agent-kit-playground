@@ -4,6 +4,7 @@ import pytest
 
 from agent_kit.card_loader import parse_card
 from agent_kit.class_definition import ClassDefinition
+from tests.conftest import make_stat
 from agent_kit.class_registry import get_class_registry
 from agent_kit.errors import (
     ClassNotFoundError,
@@ -20,18 +21,18 @@ SOURCE = Path("test_agent.yaml")
 def _isolated_class_registry():
     get_class_registry().clear()
     get_class_registry().register(
-        ClassDefinition(name="greeter", title="Greeter", description="d", stats={"warmth": 60}, source_path=SOURCE)
+        ClassDefinition(name="greeter", title="Greeter", description="d", stats={"warmth": make_stat(60)}, source_path=SOURCE)
     )
     get_class_registry().register(
         ClassDefinition(
             name="news_hound", title="News Hound", description="d",
-            stats={"relevance_sense": 65, "source_nose": 55}, source_path=SOURCE,
+            stats={"relevance_sense": make_stat(65), "source_nose": make_stat(55)}, source_path=SOURCE,
         )
     )
     get_class_registry().register(
         ClassDefinition(
             name="investigator", title="Investigator", description="d",
-            stats={"skepticism": 70, "source_nose": 90}, source_path=SOURCE,  # deliberate collision on source_nose
+            stats={"skepticism": make_stat(70), "source_nose": make_stat(90)}, source_path=SOURCE,  # deliberate collision on source_nose
         )
     )
     yield

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from agent_kit.card_definition import CardDefinition
 from agent_kit.class_definition import BASE_STAT_NAMES
-from agent_kit.errors import AgentCardNotFoundError
+from agent_kit.errors import AgentCardNotFoundError, GMSuggestionNotFoundError
 from agent_kit.xp_rules import compute_level, compute_stat_nudge, compute_tool_tier, compute_xp_delta, grade_for_action
 
 _DEFAULT_DB_PATH = "agent_kit.db"
@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS xp_events (
     xp_delta INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_traits (
+    agent_name TEXT PRIMARY KEY,
+    band_signature TEXT NOT NULL,
+    trait_paragraph TEXT NOT NULL,
+    synthesized_at TEXT NOT NULL,
+    is_stale INTEGER NOT NULL DEFAULT 0,
+    pending_since TEXT
+);
+CREATE TABLE IF NOT EXISTS gm_suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_name TEXT NOT NULL,
+    current_system_prompt TEXT NOT NULL,
+    suggested_system_prompt TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -67,6 +84,25 @@ class XPResult(BaseModel):
     new_level: int
     leveled_up: bool
     stat_deltas: dict[str, int]
+
+
+class TraitState(BaseModel):
+    agent_name: str
+    band_signature: str
+    trait_paragraph: str
+    synthesized_at: str
+    is_stale: bool
+    pending_since: str | None = None
+
+
+class GMSuggestion(BaseModel):
+    id: int
+    agent_name: str
+    current_system_prompt: str
+    suggested_system_prompt: str
+    rationale: str
+    status: str
+    created_at: str
 
 
 class CardStore:
@@ -179,12 +215,130 @@ class CardStore:
             stat_deltas=stat_deltas,
         )
 
+    # --- GM trait cache, respec debuff, and suggestions (v0.4) ---
+
+    def get_traits(self, agent_name: str) -> TraitState | None:
+        row = self._conn.execute(
+            "SELECT agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since "
+            "FROM agent_traits WHERE agent_name = ?",
+            (agent_name,),
+        ).fetchone()
+        if row is None:
+            return None
+        return TraitState(
+            agent_name=row[0], band_signature=row[1], trait_paragraph=row[2],
+            synthesized_at=row[3], is_stale=bool(row[4]), pending_since=row[5],
+        )
+
+    def store_traits(self, agent_name: str, band_signature: str, trait_paragraph: str) -> None:
+        """Cache a freshly synthesized paragraph, clearing any respec debuff."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO agent_traits "
+                "(agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since) "
+                "VALUES (?, ?, ?, ?, 0, NULL) "
+                "ON CONFLICT(agent_name) DO UPDATE SET "
+                "band_signature = excluded.band_signature, "
+                "trait_paragraph = excluded.trait_paragraph, "
+                "synthesized_at = excluded.synthesized_at, is_stale = 0, pending_since = NULL",
+                (agent_name, band_signature, trait_paragraph, datetime.now(timezone.utc).isoformat()),
+            )
+            self._conn.commit()
+
+    def mark_traits_stale(self, agent_name: str) -> None:
+        """Apply the "needs respec" debuff and enter the retry queue.
+
+        A no-op when there is no cached row at all — there is nothing stale to
+        flag, and the caller will have used the deterministic fallback instead.
+        """
+        with self._lock:
+            self._conn.execute(
+                "UPDATE agent_traits SET is_stale = 1, "
+                "pending_since = COALESCE(pending_since, ?) WHERE agent_name = ?",
+                (datetime.now(timezone.utc).isoformat(), agent_name),
+            )
+            self._conn.commit()
+
+    def list_stale_agents(self) -> list[TraitState]:
+        """The respec queue: everything waiting for the GM to come back."""
+        rows = self._conn.execute(
+            "SELECT agent_name, band_signature, trait_paragraph, synthesized_at, is_stale, pending_since "
+            "FROM agent_traits WHERE is_stale = 1 ORDER BY pending_since"
+        ).fetchall()
+        return [
+            TraitState(
+                agent_name=r[0], band_signature=r[1], trait_paragraph=r[2],
+                synthesized_at=r[3], is_stale=bool(r[4]), pending_since=r[5],
+            )
+            for r in rows
+        ]
+
+    def record_suggestion(
+        self, agent_name: str, current_system_prompt: str, suggested_system_prompt: str, rationale: str
+    ) -> GMSuggestion:
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT INTO gm_suggestions "
+                "(agent_name, current_system_prompt, suggested_system_prompt, rationale, status, created_at) "
+                "VALUES (?, ?, ?, ?, 'pending', ?)",
+                (
+                    agent_name, current_system_prompt, suggested_system_prompt, rationale,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
+            suggestion_id = cursor.lastrowid
+        return self.get_suggestion(suggestion_id)
+
+    def get_suggestion(self, suggestion_id: int) -> GMSuggestion:
+        row = self._conn.execute(
+            "SELECT id, agent_name, current_system_prompt, suggested_system_prompt, rationale, status, created_at "
+            "FROM gm_suggestions WHERE id = ?",
+            (suggestion_id,),
+        ).fetchone()
+        if row is None:
+            raise GMSuggestionNotFoundError(f"no GM suggestion with id {suggestion_id}")
+        return GMSuggestion(
+            id=row[0], agent_name=row[1], current_system_prompt=row[2],
+            suggested_system_prompt=row[3], rationale=row[4], status=row[5], created_at=row[6],
+        )
+
+    def list_suggestions(self, status: str | None = "pending") -> list[GMSuggestion]:
+        query = (
+            "SELECT id, agent_name, current_system_prompt, suggested_system_prompt, rationale, status, created_at "
+            "FROM gm_suggestions"
+        )
+        params: tuple = ()
+        if status is not None:
+            query += " WHERE status = ?"
+            params = (status,)
+        query += " ORDER BY created_at DESC"
+
+        return [
+            GMSuggestion(
+                id=r[0], agent_name=r[1], current_system_prompt=r[2],
+                suggested_system_prompt=r[3], rationale=r[4], status=r[5], created_at=r[6],
+            )
+            for r in self._conn.execute(query, params).fetchall()
+        ]
+
+    def resolve_suggestion(self, suggestion_id: int, status: str) -> GMSuggestion:
+        self.get_suggestion(suggestion_id)  # raises GMSuggestionNotFoundError if unknown
+        with self._lock:
+            self._conn.execute(
+                "UPDATE gm_suggestions SET status = ? WHERE id = ?", (status, suggestion_id)
+            )
+            self._conn.commit()
+        return self.get_suggestion(suggestion_id)
+
     def clear(self) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM agents")
             self._conn.execute("DELETE FROM agent_stats")
             self._conn.execute("DELETE FROM tool_proficiency")
             self._conn.execute("DELETE FROM xp_events")
+            self._conn.execute("DELETE FROM agent_traits")
+            self._conn.execute("DELETE FROM gm_suggestions")
             self._conn.commit()
 
     def close(self) -> None:

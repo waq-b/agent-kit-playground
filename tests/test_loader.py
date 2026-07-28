@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from agent_kit.class_definition import ClassDefinition
+from tests.conftest import make_stat
 from agent_kit.class_registry import get_class_registry
 from agent_kit.errors import (
     ClassNotFoundError,
@@ -92,10 +93,10 @@ def test_directory_with_one_bad_file_and_n_good_files_returns_n(tmp_path):
 def _isolated_class_registry():
     get_class_registry().clear()
     get_class_registry().register(
-        ClassDefinition(name="greeter", title="Greeter", description="d", stats={"warmth": 60}, source_path=Path("test_class.yaml"))
+        ClassDefinition(name="greeter", title="Greeter", description="d", stats={"warmth": make_stat(60)}, source_path=Path("test_class.yaml"))
     )
     get_class_registry().register(
-        ClassDefinition(name="investigator", title="Investigator", description="d", stats={"skepticism": 70}, source_path=Path("test_class.yaml"))
+        ClassDefinition(name="investigator", title="Investigator", description="d", stats={"skepticism": make_stat(70)}, source_path=Path("test_class.yaml"))
     )
     yield
     get_class_registry().clear()

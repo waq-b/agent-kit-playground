@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_kit.class_definition import DEFAULT_BASE_STAT_VALUE
+from agent_kit.base_stats import DEFAULT_BASE_STAT_VALUE
 
 
 @dataclass(frozen=True)

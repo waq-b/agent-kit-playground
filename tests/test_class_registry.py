@@ -4,13 +4,14 @@ import pytest
 
 from agent_kit.class_definition import ClassDefinition
 from agent_kit.class_registry import ClassRegistry
+from tests.conftest import make_stat
 from agent_kit.errors import ClassNotFoundError, DuplicateClassError
 
 
 def make(name: str, path: str = "a.yaml") -> ClassDefinition:
     return ClassDefinition(
         name=name, title=name.title(), description="d",
-        stats={"warmth": 50}, source_path=Path(path),
+        stats={"warmth": make_stat(50)}, source_path=Path(path),
     )
 
 
@@ -45,3 +46,16 @@ def test_list_returns_exactly_name_and_title_per_entry():
     assert len(listing) == 2
     for entry in listing:
         assert set(entry.keys()) == {"name", "title"}
+
+
+def test_replace_overwrites_existing_entry_without_raising():
+    r = ClassRegistry()
+    r.register(make("greeter", "original.yaml"))
+    r.replace(make("greeter", "edited.yaml"))
+    assert r.get("greeter").source_path == Path("edited.yaml")
+
+
+def test_replace_works_on_a_fresh_name_too():
+    r = ClassRegistry()
+    r.replace(make("greeter"))
+    assert r.get("greeter").name == "greeter"

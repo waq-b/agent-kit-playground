@@ -21,7 +21,9 @@ def parse_card(card_data: dict[str, Any], source_path: Path) -> CardDefinition:
     if card_data.get("sub_class"):
         sub_class = get_class_registry().get(card_data["sub_class"])
 
-    class_stats = {**main_class.stats, **(sub_class.stats if sub_class else {})}
+    # .stat_values, not .stats — cards and CardStore carry plain ints; the
+    # effect metadata stays on the ClassDefinition and is resolved at run time.
+    class_stats = {**main_class.stat_values, **(sub_class.stat_values if sub_class else {})}
 
     base_stats = {name: DEFAULT_BASE_STAT_VALUE for name in BASE_STAT_NAMES}
     for stat_name, value in (card_data.get("base_stats") or {}).items():
