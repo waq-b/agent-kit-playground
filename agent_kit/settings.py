@@ -27,8 +27,9 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,39 @@ _SETTINGS_FILENAME = "settings.json"
 DEFAULT_PROVIDER_URL = "http://localhost:11434/v1"
 DEFAULT_MODEL = "qwen2.5:14b"
 DEFAULT_DB_PATH = "agent_kit.db"
+
+ModelKind = Literal["local", "frontier"]
+
+
+class ModelProviderEntry(BaseModel):
+    """One registered model: what to call it, and how to reach it.
+
+    `kind="local"` entries carry no URL/key of their own — they always resolve
+    to the shared `provider_url` above, so moving that one URL moves every
+    local model with it (this mirrors how `provider_url` already worked before
+    a registry existed: one shared endpoint for every locally-run model).
+    `kind="frontier"` entries are self-contained: their own base_url and
+    api_key, since a frontier provider (OpenAI, a hosted gateway, ...) has
+    nothing to do with the local Ollama instance.
+    """
+
+    model_id: str = Field(min_length=1)
+    label: str = ""
+    kind: ModelKind
+    base_url: str | None = None
+    api_key: str | None = None
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "ModelProviderEntry":
+        if self.kind == "local":
+            self.base_url = None
+            self.api_key = None
+        else:
+            if not (self.base_url or "").strip():
+                raise ValueError("a frontier model needs a base URL")
+            if not (self.api_key or "").strip():
+                raise ValueError("a frontier model needs an API key")
+        return self
 
 
 class PlaygroundSettings(BaseModel):
@@ -56,6 +90,11 @@ class PlaygroundSettings(BaseModel):
     suggestions_enabled: bool = True
     ntfy_url: str = ""
     db_path: str = DEFAULT_DB_PATH
+    # API keys live here in plaintext, same as every other setting — consistent
+    # with this being a localhost-only dev tool with no auth layer (see README).
+    # Never sent back to the browser: app.py masks it behind `has_api_key` on
+    # every response that touches this list.
+    models: list[ModelProviderEntry] = Field(default_factory=list)
 
 
 def settings_path() -> Path:
@@ -135,3 +174,37 @@ def apply_to_environment(settings: PlaygroundSettings) -> None:
         from agent_kit.card_store import reset_card_store
 
         reset_card_store()
+
+
+class ResolvedProvider(BaseModel):
+    """Where to send a request for a given model id, and how to authenticate."""
+
+    base_url: str
+    api_key: str
+    is_frontier: bool
+
+
+def resolve_model_provider(model_id: str) -> ResolvedProvider:
+    """Look up how to reach `model_id`.
+
+    A model explicitly registered as frontier gets its own base_url + api_key.
+    Everything else — a registered local model, or a model that was never
+    registered at all (the v0.1–v0.4 default: any string works as long as the
+    local Ollama instance has it) — resolves to the shared local provider_url
+    with the fixed placeholder key Ollama ignores. Registration is required to
+    reach a frontier provider at all (there is no other way for the Runner to
+    learn its URL/key); it is purely a convenience for local models, never a
+    requirement.
+    """
+    settings = load_settings()
+    for entry in settings.models:
+        if entry.model_id == model_id and entry.kind == "frontier":
+            return ResolvedProvider(
+                base_url=entry.base_url or "", api_key=entry.api_key or "", is_frontier=True
+            )
+
+    # Lazy import: runner.py imports load_settings from this module at module
+    # level, so importing it back here at module level would be circular.
+    from agent_kit.runner import provider_base_url
+
+    return ResolvedProvider(base_url=provider_base_url(), api_key="ollama", is_frontier=False)

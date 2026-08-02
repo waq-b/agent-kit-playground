@@ -16,7 +16,15 @@ interface Props {
   onGraded: () => void;
 }
 
-const EMPTY_DRAFT = "{\n  \n}";
+/**
+ * Left genuinely empty (not `{}`) so the textarea's placeholder — a generic
+ * "this is what JSON input looks like" hint — actually shows. The two core
+ * agents never hit this path: `agent_kit.builder.seed_core_sample_inputs`
+ * gives hello/news a real example at server startup. This is only for a
+ * custom agent whose sample input was never filled in.
+ */
+const EMPTY_DRAFT = "";
+const GENERIC_PLACEHOLDER = '{\n  "field": "value"\n}';
 
 export function RunScreen({
   agents,
@@ -44,25 +52,41 @@ export function RunScreen({
   const selectedAgent = agents?.find((a) => a.name === selected) ?? null;
   const draft = selected ? (drafts[selected] ?? "") : "";
 
+  // Mirrors `drafts` without being a reactive dependency below — see why in
+  // the comment on the effect itself.
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+
   // Seed the input box from the agent's own sample input the first time it is
-  // selected. The design hardcoded examples for hello/news; the real source is
-  // whatever the builder saved alongside the agent.
+  // selected. The real source is whatever the Builder saved alongside the
+  // agent (or, for hello/news, what `seed_core_sample_inputs` fills in at
+  // server startup).
+  //
+  // Deliberately keyed on `selected` alone, not `drafts`: the effect's own
+  // synchronous `setDrafts` call below changes `drafts`' identity, and if
+  // `drafts` were a dependency that change would re-run the effect and cancel
+  // this same fetch before it resolves — the sample would load successfully
+  // but never make it into the box. `draftsRef` gives the one-time "does this
+  // agent already have a draft" check without that self-cancelling loop.
   useEffect(() => {
-    if (!selected || drafts[selected] !== undefined) return;
+    if (!selected || draftsRef.current[selected] !== undefined) return;
     let cancelled = false;
     setDrafts((d) => (d[selected] === undefined ? { ...d, [selected]: EMPTY_DRAFT } : d));
     void getSampleInput(selected)
       .then((sample) => {
         if (cancelled || !sample) return;
-        setDrafts((d) => ({ ...d, [selected]: JSON.stringify(sample, null, 2) }));
+        // Only replace the placeholder we set — if the user already started
+        // typing while this was in flight, don't clobber it.
+        setDrafts((d) => (d[selected] === EMPTY_DRAFT ? { ...d, [selected]: JSON.stringify(sample, null, 2) } : d));
       })
       .catch(() => {
-        /* no sample input is a normal state — leave the empty object */
+        /* no sample input is a normal state — leave the empty box */
       });
     return () => {
       cancelled = true;
     };
-  }, [selected, drafts, setDrafts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [selected]);
 
   // Reset per-run output whenever the selection changes.
   useEffect(() => {
@@ -276,7 +300,7 @@ export function RunScreen({
                 rows={8}
                 spellCheck={false}
                 value={draft}
-                placeholder='{"name": "Alice"}'
+                placeholder={GENERIC_PLACEHOLDER}
                 onChange={(e) =>
                   selected && setDrafts((d) => ({ ...d, [selected]: e.target.value }))
                 }

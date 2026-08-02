@@ -1,10 +1,11 @@
 import { useState } from "react";
 
 import { checkModel } from "../api/client";
-import type { ClassSummary, FieldType, ModelCheckResponse } from "../api/types";
+import type { ClassSummary, FieldType, ModelCheckResponse, ModelProviderSummary } from "../api/types";
 import { Corners } from "../components/Blueprint";
+import { ModelSelect } from "../components/ModelSelect";
+import { buildModelOptions } from "../lib/models";
 import {
-  BASE_MODEL_OPTIONS,
   CUSTOM_MODEL,
   blankOutputField,
   resolvedModel,
@@ -22,6 +23,7 @@ interface Props {
   existingNames: string[];
   classes: ClassSummary[];
   tools: string[];
+  models: ModelProviderSummary[];
   defaultModel: string;
   submitError: string | null;
   saving: boolean;
@@ -41,6 +43,7 @@ export function AgentWizard({
   existingNames,
   classes,
   tools,
+  models,
   defaultModel,
   submitError,
   saving,
@@ -58,7 +61,10 @@ export function AgentWizard({
   const patchFields = (update: (fields: OutputFieldDraft[]) => OutputFieldDraft[]) =>
     setDraft((d) => ({ ...d, outputFields: update(d.outputFields), outputFieldsTouched: true }));
 
-  const modelOptions = Array.from(new Set([defaultModel, ...BASE_MODEL_OPTIONS]));
+  const modelOptions = [
+    ...buildModelOptions(models, [defaultModel, draft.model === CUSTOM_MODEL ? null : draft.model]),
+    { value: CUSTOM_MODEL, label: "Custom…", kind: "local" as const },
+  ];
 
   const attemptSave = (asDraft: boolean) => {
     const found = validateDraft(draft, existingNames, originalName, asDraft);
@@ -153,22 +159,15 @@ export function AgentWizard({
         <div className="ak-two-col">
           <div className="field" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <label htmlFor="w-model">Model</label>
-            <select
+            <ModelSelect
               id="w-model"
-              className="input"
+              options={modelOptions}
               value={draft.model}
-              onChange={(e) => {
-                patch({ model: e.target.value });
+              onChange={(v) => {
+                patch({ model: v });
                 setModelCheck(null);
               }}
-            >
-              {modelOptions.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-              <option value={CUSTOM_MODEL}>Custom…</option>
-            </select>
+            />
             {draft.model === CUSTOM_MODEL && (
               <input
                 className="input ak-mono"

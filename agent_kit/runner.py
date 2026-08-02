@@ -32,7 +32,7 @@ from agent_kit.stat_effects import (
     fallback_trait_paragraph,
     resolve_effects,
 )
-from agent_kit.settings import load_settings
+from agent_kit.settings import load_settings, resolve_model_provider
 from agent_kit.stat_mapping import compute_runtime_params
 from agent_kit.stub_store import get_stub_store
 from agent_kit.tool_registry import get_tool_registry
@@ -245,9 +245,10 @@ class Runner:
             model_settings["temperature"] = params.temperature
             retries, tool_timeout, max_concurrency = params.retries, params.tool_timeout, params.max_concurrency
 
+        resolved = resolve_model_provider(definition.model)
         model = OpenAIChatModel(
             definition.model,
-            provider=OpenAIProvider(base_url=provider_base_url(), api_key="ollama"),
+            provider=OpenAIProvider(base_url=resolved.base_url, api_key=resolved.api_key),
         )
         agent = Agent(
             model=model,
@@ -268,7 +269,7 @@ class Runner:
             result = agent.run_sync(prompt)
         except ModelAPIError as e:
             raise AgentConnectionError(
-                f"could not reach model provider at {provider_base_url()} for agent "
+                f"could not reach model provider at {resolved.base_url} for agent "
                 f"'{definition.name}': {e}"
             ) from e
         except AgentRunError as e:

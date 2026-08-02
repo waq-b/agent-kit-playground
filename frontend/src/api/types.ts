@@ -36,6 +36,10 @@ export type SuggestionSummary = S["SuggestionSummary"];
 export type PlaygroundSettings = S["PlaygroundSettings"];
 export type SettingsUpdate = S["SettingsUpdate"];
 
+export type ModelProviderSummary = S["ModelProviderSummary"];
+export type CreateModelRequest = S["CreateModelRequest"];
+export type ModelKind = ModelProviderSummary["kind"];
+
 /** The backend's own field-type vocabulary, not a parallel frontend list. */
 export type FieldType = FieldSpec["type"];
 

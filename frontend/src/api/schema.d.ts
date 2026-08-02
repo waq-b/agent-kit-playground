@@ -358,6 +358,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Models */
+        get: operations["list_models_api_v1_models_get"];
+        put?: never;
+        /** Create Model */
+        post: operations["create_model_api_v1_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Model */
+        delete: operations["delete_model_api_v1_models__model_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/": {
         parameters: {
             query?: never;
@@ -619,6 +654,25 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** CreateModelRequest */
+        CreateModelRequest: {
+            /** Model Id */
+            model_id: string;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "local" | "frontier";
+            /** Base Url */
+            base_url?: string | null;
+            /** Api Key */
+            api_key?: string | null;
+        };
         /** DuplicateAgentRequest */
         DuplicateAgentRequest: {
             /** New Name */
@@ -701,6 +755,58 @@ export interface components {
             message: string;
         };
         /**
+         * ModelProviderEntry
+         * @description One registered model: what to call it, and how to reach it.
+         *
+         *     `kind="local"` entries carry no URL/key of their own — they always resolve
+         *     to the shared `provider_url` above, so moving that one URL moves every
+         *     local model with it (this mirrors how `provider_url` already worked before
+         *     a registry existed: one shared endpoint for every locally-run model).
+         *     `kind="frontier"` entries are self-contained: their own base_url and
+         *     api_key, since a frontier provider (OpenAI, a hosted gateway, ...) has
+         *     nothing to do with the local Ollama instance.
+         */
+        ModelProviderEntry: {
+            /** Model Id */
+            model_id: string;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "local" | "frontier";
+            /** Base Url */
+            base_url?: string | null;
+            /** Api Key */
+            api_key?: string | null;
+        };
+        /**
+         * ModelProviderSummary
+         * @description `ModelProviderEntry` without the api_key — what the browser is allowed to see.
+         */
+        ModelProviderSummary: {
+            /** Model Id */
+            model_id: string;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "local" | "frontier";
+            /** Base Url */
+            base_url?: string | null;
+            /**
+             * Has Api Key
+             * @default false
+             */
+            has_api_key: boolean;
+        };
+        /**
          * PlaygroundSettings
          * @description Server-side settings the playground UI can edit.
          *
@@ -753,6 +859,8 @@ export interface components {
              * @default agent_kit.db
              */
             db_path: string;
+            /** Models */
+            models?: components["schemas"]["ModelProviderEntry"][];
         };
         /** RespecProcessResult */
         RespecProcessResult: {
@@ -1506,6 +1614,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlaygroundSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_models_api_v1_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderSummary"][];
+                };
+            };
+        };
+    };
+    create_model_api_v1_models_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_model_api_v1_models__model_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */

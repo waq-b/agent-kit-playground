@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from agent_kit import builder
 from agent_kit.card_definition import CardDefinition
@@ -29,7 +29,14 @@ from agent_kit.errors import (
 from agent_kit.model_codegen import FieldSpec
 from agent_kit.registry import get_registry
 from agent_kit.runner import Runner
-from agent_kit.settings import PlaygroundSettings, apply_to_environment, load_settings, save_settings
+from agent_kit.settings import (
+    ModelKind,
+    ModelProviderEntry,
+    PlaygroundSettings,
+    apply_to_environment,
+    load_settings,
+    save_settings,
+)
 from agent_kit.tool_registry import get_tool_registry
 
 @asynccontextmanager
@@ -53,6 +60,11 @@ async def _lifespan(app: FastAPI):
     # what the user last saved. Same reasoning as the reload above: lifespan, not
     # import time, so the test suite's own environment is never clobbered.
     apply_to_environment(load_settings())
+    # hello/news ship as plain YAML, never went through the Builder wizard, and
+    # so never got a sample input — leaving the Run screen with nothing to
+    # prefill for either. Idempotent: a no-op once seeded, or once a user has
+    # edited either one's sample input themselves.
+    builder.seed_core_sample_inputs()
     yield
 
 
@@ -611,12 +623,18 @@ class SettingsUpdate(BaseModel):
     db_path: str | None = None
 
 
-@app.get("/api/v1/settings", response_model=PlaygroundSettings)
+# `models` carries plaintext API keys internally (see settings.py); excluded
+# from both settings responses so a key never crosses the wire. The model
+# registry has its own masked read path below (`ModelProviderSummary`).
+_SETTINGS_RESPONSE_EXCLUDE = {"models"}
+
+
+@app.get("/api/v1/settings", response_model=PlaygroundSettings, response_model_exclude=_SETTINGS_RESPONSE_EXCLUDE)
 def get_settings() -> PlaygroundSettings:
     return load_settings()
 
 
-@app.put("/api/v1/settings", response_model=PlaygroundSettings)
+@app.put("/api/v1/settings", response_model=PlaygroundSettings, response_model_exclude=_SETTINGS_RESPONSE_EXCLUDE)
 def put_settings(request: SettingsUpdate) -> PlaygroundSettings:
     """Merge the patch over current settings, persist, and apply to the process.
 
@@ -628,6 +646,72 @@ def put_settings(request: SettingsUpdate) -> PlaygroundSettings:
     current = load_settings()
     patch = request.model_dump(exclude_none=True)
     return save_settings(current.model_copy(update=patch))
+
+
+# --- Model provider registry (v0.6) ---
+#
+# A model is either "local" (routes through the shared provider_url above,
+# same as every model did before this existed) or "frontier" (its own base_url
+# + api_key, entered once here). Registering isn't required to run against a
+# local model — any string still works, exactly as before — but it is the only
+# way to reach a frontier one: the Runner has no other source for that URL/key.
+
+
+class ModelProviderSummary(BaseModel):
+    """`ModelProviderEntry` without the api_key — what the browser is allowed to see."""
+
+    model_id: str
+    label: str
+    kind: ModelKind
+    base_url: str | None = None
+    has_api_key: bool = False
+
+
+class CreateModelRequest(BaseModel):
+    model_id: str
+    label: str = ""
+    kind: ModelKind
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+def _model_summary(entry: ModelProviderEntry) -> ModelProviderSummary:
+    return ModelProviderSummary(
+        model_id=entry.model_id,
+        label=entry.label or entry.model_id,
+        kind=entry.kind,
+        base_url=entry.base_url,
+        has_api_key=bool(entry.api_key),
+    )
+
+
+@app.get("/api/v1/models", response_model=list[ModelProviderSummary])
+def list_models() -> list[ModelProviderSummary]:
+    return [_model_summary(m) for m in load_settings().models]
+
+
+@app.post("/api/v1/models", response_model=ModelProviderSummary, status_code=201)
+def create_model(request: CreateModelRequest) -> ModelProviderSummary:
+    settings = load_settings()
+    if any(m.model_id == request.model_id for m in settings.models):
+        raise HTTPException(status_code=409, detail=f"model '{request.model_id}' is already registered")
+    try:
+        entry = ModelProviderEntry(**request.model_dump())
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    settings.models = [*settings.models, entry]
+    save_settings(settings)
+    return _model_summary(entry)
+
+
+@app.delete("/api/v1/models/{model_id}")
+def delete_model(model_id: str) -> dict[str, str]:
+    settings = load_settings()
+    if not any(m.model_id == model_id for m in settings.models):
+        raise HTTPException(status_code=404, detail=f"model '{model_id}' is not registered")
+    settings.models = [m for m in settings.models if m.model_id != model_id]
+    save_settings(settings)
+    return {"status": "deleted", "model_id": model_id}
 
 
 _INDEX_HTML = """<!doctype html>

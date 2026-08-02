@@ -51,8 +51,6 @@ export interface WizardDraft {
 
 export const CUSTOM_MODEL = "custom";
 
-export const BASE_MODEL_OPTIONS = ["qwen2.5:14b", "llama3.1:8b", "mistral:7b"];
-
 let fieldCounter = 0;
 export const nextFieldId = () => `f${fieldCounter++}`;
 

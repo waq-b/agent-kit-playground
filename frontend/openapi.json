@@ -816,6 +816,107 @@
         }
       }
     },
+    "/api/v1/models": {
+      "get": {
+        "summary": "List Models",
+        "operationId": "list_models_api_v1_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelProviderSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Models Api V1 Models Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Model",
+        "operationId": "create_model_api_v1_models_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProviderSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/{model_id}": {
+      "delete": {
+        "summary": "Delete Model",
+        "operationId": "delete_model_api_v1_models__model_id__delete",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Model Api V1 Models  Model Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Index",
@@ -1358,6 +1459,55 @@
         ],
         "title": "CreateClassRequest"
       },
+      "CreateModelRequest": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "local",
+              "frontier"
+            ],
+            "title": "Kind"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "kind"
+        ],
+        "title": "CreateModelRequest"
+      },
       "DuplicateAgentRequest": {
         "properties": {
           "new_name": {
@@ -1531,6 +1681,101 @@
         ],
         "title": "ModelCheckResponse"
       },
+      "ModelProviderEntry": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Model Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "local",
+              "frontier"
+            ],
+            "title": "Kind"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "kind"
+        ],
+        "title": "ModelProviderEntry",
+        "description": "One registered model: what to call it, and how to reach it.\n\n`kind=\"local\"` entries carry no URL/key of their own \u2014 they always resolve\nto the shared `provider_url` above, so moving that one URL moves every\nlocal model with it (this mirrors how `provider_url` already worked before\na registry existed: one shared endpoint for every locally-run model).\n`kind=\"frontier\"` entries are self-contained: their own base_url and\napi_key, since a frontier provider (OpenAI, a hosted gateway, ...) has\nnothing to do with the local Ollama instance."
+      },
+      "ModelProviderSummary": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "local",
+              "frontier"
+            ],
+            "title": "Kind"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "has_api_key": {
+            "type": "boolean",
+            "title": "Has Api Key",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "label",
+          "kind"
+        ],
+        "title": "ModelProviderSummary",
+        "description": "`ModelProviderEntry` without the api_key \u2014 what the browser is allowed to see."
+      },
       "PlaygroundSettings": {
         "properties": {
           "provider_url": {
@@ -1579,6 +1824,13 @@
             "type": "string",
             "title": "Db Path",
             "default": "agent_kit.db"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelProviderEntry"
+            },
+            "type": "array",
+            "title": "Models"
           }
         },
         "type": "object",

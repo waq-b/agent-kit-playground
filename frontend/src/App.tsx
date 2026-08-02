@@ -3,16 +3,18 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, getApiBase, listAgents } from "./api/client";
 import type { AgentSummary } from "./api/types";
 import { BuilderScreen } from "./screens/BuilderScreen";
+import { ModelsScreen } from "./screens/ModelsScreen";
 import { RosterScreen } from "./screens/RosterScreen";
 import { RunScreen } from "./screens/RunScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
-export type View = "run" | "roster" | "builder" | "settings";
+export type View = "run" | "roster" | "builder" | "models" | "settings";
 
 const TABS: { view: View; label: string }[] = [
   { view: "run", label: "Run" },
   { view: "roster", label: "Roster" },
   { view: "builder", label: "Builder" },
+  { view: "models", label: "Models" },
   { view: "settings", label: "Settings" },
 ];
 
@@ -130,7 +132,8 @@ export function App() {
           onRunAgent={openInRun}
         />
       )}
-      {view === "settings" && <SettingsScreen />}
+      {view === "models" && <ModelsScreen />}
+      {view === "settings" && <SettingsScreen onManageModels={() => setView("models")} />}
     </div>
   );
 }

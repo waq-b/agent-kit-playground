@@ -7,16 +7,23 @@ import {
   getSettings,
   listAgents,
   listCards,
+  listModels,
   setApiBase,
   updateSettings,
 } from "../api/client";
-import type { PlaygroundSettings } from "../api/types";
+import type { ModelProviderSummary, PlaygroundSettings } from "../api/types";
 import { Corners } from "../components/Blueprint";
-import { BASE_MODEL_OPTIONS } from "../lib/wizard";
+import { ModelSelect } from "../components/ModelSelect";
+import { buildModelOptions } from "../lib/models";
 
-export function SettingsScreen() {
+interface Props {
+  onManageModels: () => void;
+}
+
+export function SettingsScreen({ onManageModels }: Props) {
   const [settings, setSettings] = useState<PlaygroundSettings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelProviderSummary[]>([]);
   const [apiBase, setApiBaseInput] = useState(getApiBase());
   const [saving, setSaving] = useState(false);
   const [ack, setAck] = useState<string | null>(null);
@@ -27,9 +34,10 @@ export function SettingsScreen() {
   useEffect(() => {
     void getSettings()
       .then(setSettings)
-      .catch((e: unknown) =>
-        setLoadError(e instanceof ApiError ? e.detail : String(e)),
-      );
+      .catch((e: unknown) => setLoadError(e instanceof ApiError ? e.detail : String(e)));
+    void listModels()
+      .then(setModels)
+      .catch(() => setModels([]));
   }, []);
 
   const patch = (p: Partial<PlaygroundSettings>) => {
@@ -110,9 +118,7 @@ export function SettingsScreen() {
     );
   }
 
-  const modelOptions = Array.from(
-    new Set([settings.default_model, settings.gm_model, ...BASE_MODEL_OPTIONS]),
-  );
+  const modelOptions = buildModelOptions(models, [settings.default_model, settings.gm_model]);
 
   return (
     <div className="ak-screen">
@@ -168,31 +174,14 @@ export function SettingsScreen() {
 
         <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div className="ak-kicker">Model provider</div>
-          <div className="ak-two-col">
-            <div className="field" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label htmlFor="s-provider">Provider base URL</label>
-              <input
-                id="s-provider"
-                className="input ak-mono"
-                value={settings.provider_url}
-                onChange={(e) => patch({ provider_url: e.target.value })}
-              />
-            </div>
-            <div className="field" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label htmlFor="s-default-model">Default agent model</label>
-              <select
-                id="s-default-model"
-                className="input"
-                value={settings.default_model}
-                onChange={(e) => patch({ default_model: e.target.value })}
-              >
-                {modelOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="field" style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 340 }}>
+            <label htmlFor="s-default-model">Default agent model</label>
+            <ModelSelect
+              id="s-default-model"
+              options={modelOptions}
+              value={settings.default_model}
+              onChange={(v) => patch({ default_model: v })}
+            />
           </div>
           <label className="ak-checkbox-row">
             <input
@@ -206,7 +195,17 @@ export function SettingsScreen() {
             </span>
           </label>
           <span style={{ fontSize: 11.5, opacity: 0.55, marginTop: -6 }}>
-            Applies to the whole server process, not just this browser tab.
+            Applies to the whole server process, not just this browser tab. Register models and
+            edit the local provider URL on the{" "}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: 11.5, padding: 0 }}
+              onClick={onManageModels}
+            >
+              Models
+            </button>{" "}
+            page.
           </span>
         </section>
 
@@ -215,18 +214,12 @@ export function SettingsScreen() {
           <div className="ak-two-col">
             <div className="field" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <label htmlFor="s-gm-model">GM model</label>
-              <select
+              <ModelSelect
                 id="s-gm-model"
-                className="input"
+                options={modelOptions}
                 value={settings.gm_model}
-                onChange={(e) => patch({ gm_model: e.target.value })}
-              >
-                {modelOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => patch({ gm_model: v })}
+              />
             </div>
             <div className="field" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <label htmlFor="s-threshold">

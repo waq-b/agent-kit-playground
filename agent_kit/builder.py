@@ -38,7 +38,7 @@ from agent_kit.errors import (
 from agent_kit.loader import DefinitionLoader
 from agent_kit.model_codegen import FieldSpec, generate_model_source, output_class_name
 from agent_kit.registry import get_registry
-from agent_kit.runner import provider_base_url
+from agent_kit.settings import resolve_model_provider
 from agent_kit.stub_store import get_stub_store
 from agent_kit.tool_registry import get_tool_registry
 from agent_kit.yaml_io import write_yaml_file
@@ -436,15 +436,18 @@ def create_class(content: str, paths: BuilderPaths | None = None) -> Any:
 
 def check_model_reachable(model_name: str) -> dict[str, Any]:
     """Soft, best-effort check — never raises, never blocks save, works offline."""
+    resolved = resolve_model_provider(model_name)
+    headers = {"Authorization": f"Bearer {resolved.api_key}"} if resolved.is_frontier else None
+    source = "the registered frontier provider" if resolved.is_frontier else "local Ollama"
     try:
-        response = httpx.get(f"{provider_base_url()}/models", timeout=2.0)
+        response = httpx.get(f"{resolved.base_url}/models", headers=headers, timeout=2.0)
         response.raise_for_status()
         available_models = {m["id"] for m in response.json().get("data", [])}
         if model_name in available_models:
-            return {"available": True, "message": f"'{model_name}' found on local Ollama"}
-        return {"available": False, "message": f"'{model_name}' not found in local Ollama's model list"}
+            return {"available": True, "message": f"'{model_name}' found on {source}"}
+        return {"available": False, "message": f"'{model_name}' not found in {source}'s model list"}
     except Exception as e:
-        return {"available": False, "message": f"could not reach Ollama to check: {e}"}
+        return {"available": False, "message": f"could not reach {source} to check: {e}"}
 
 
 def read_sample_input(name: str, paths: BuilderPaths | None = None) -> dict[str, Any] | None:
@@ -464,3 +467,29 @@ def write_sample_input(name: str, sample: dict[str, Any], paths: BuilderPaths | 
 def delete_sample_input(name: str, paths: BuilderPaths | None = None) -> None:
     paths = paths or DEFAULT_PATHS
     paths.sample_input_file(name).unlink(missing_ok=True)
+
+
+# Sample input is normally something a user fills in through the Builder wizard
+# when they create an agent — but hello/news ship as plain YAML in agent_kit/,
+# never went through the wizard, and so never got one. Without it the Run
+# screen has nothing to prefill and no way to derive the Roster's "Input"
+# column, even though the real input shape is well known (see
+# agent_kit/agents/models/{hello,news}.py). Seeded once at startup via the
+# exact same read/write path a wizard-filled sample uses, so nothing else has
+# to treat "core" and "user-created" agents differently.
+_CORE_SAMPLE_INPUTS: dict[str, dict[str, Any]] = {
+    "hello": {"name": "Alice"},
+    "news": {"keywords": ["AI", "climate"]},
+}
+
+
+def seed_core_sample_inputs(paths: BuilderPaths | None = None) -> None:
+    """Fill in a sample input for any core agent that doesn't already have one.
+
+    Never overwrites — if a user has since edited it via the wizard, that edit
+    wins. Silently does nothing for a core agent name not in the map, so
+    adding a new core agent without a seeded example is a no-op, not an error.
+    """
+    for name, sample in _CORE_SAMPLE_INPUTS.items():
+        if read_sample_input(name, paths) is None:
+            write_sample_input(name, sample, paths)

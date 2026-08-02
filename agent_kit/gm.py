@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from agent_kit.errors import GMUnavailableError
-from agent_kit.runner import provider_base_url
+from agent_kit.settings import resolve_model_provider
 from agent_kit.stat_effects import PromptBand
 
 logger = logging.getLogger(__name__)
@@ -89,9 +89,16 @@ def _build_gm_agent() -> Agent:
             from pydantic_ai.models.openai import OpenAIChatModel
             from pydantic_ai.providers.openai import OpenAIProvider
 
+            # AGENT_KIT_GM_API_KEY, when set, is an explicit override and wins;
+            # otherwise resolve the model against the registry — this is what
+            # lets a frontier-tagged GM model (e.g. picked in Settings) actually
+            # route to its own endpoint instead of the local one.
+            resolved = resolve_model_provider(model_name)
             model = OpenAIChatModel(
                 model_name,
-                provider=OpenAIProvider(base_url=provider_base_url(), api_key=api_key or "ollama"),
+                provider=OpenAIProvider(
+                    base_url=resolved.base_url, api_key=api_key or resolved.api_key
+                ),
             )
         elif provider_name == "anthropic":
             if not api_key:

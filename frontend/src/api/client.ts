@@ -14,9 +14,11 @@ import type {
   ClassSummary,
   CreateAgentRequest,
   CreateClassRequest,
+  CreateModelRequest,
   GradeRequest,
   GradeResponse,
   ModelCheckResponse,
+  ModelProviderSummary,
   PlaygroundSettings,
   RespecProcessResult,
   RespecQueueEntry,
@@ -196,3 +198,13 @@ export const getSettings = () => request<PlaygroundSettings>("/settings");
 
 export const updateSettings = (patch: SettingsUpdate) =>
   put<PlaygroundSettings>("/settings", patch);
+
+// --- model providers ---
+
+export const listModels = () => request<ModelProviderSummary[]>("/models");
+
+export const createModel = (body: CreateModelRequest) =>
+  post<ModelProviderSummary>("/models", body);
+
+export const deleteModel = (modelId: string) =>
+  request<{ status: string; model_id: string }>(`/models/${seg(modelId)}`, { method: "DELETE" });

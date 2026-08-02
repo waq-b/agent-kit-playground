@@ -10,6 +10,7 @@ import {
   getRespecQueue,
   getSettings,
   listClasses,
+  listModels,
   listSuggestions,
   listTools,
   processRespecQueue,
@@ -20,6 +21,7 @@ import type {
   AgentBuilderDetail,
   AgentSummary,
   ClassSummary,
+  ModelProviderSummary,
   RespecQueueEntry,
   SuggestionSummary,
   UpdateAgentRequest,
@@ -28,7 +30,6 @@ import { Corners } from "../components/Blueprint";
 import { deleteDraft, listDrafts, saveDraft } from "../lib/drafts";
 import { commonPrefixLength, titleize } from "../lib/format";
 import {
-  BASE_MODEL_OPTIONS,
   blankDraft,
   draftFromDetail,
   parseSampleInput,
@@ -71,7 +72,8 @@ export function BuilderScreen({ agents, dataVersion, onAgentsChanged, onRunAgent
   const [drafts, setDrafts] = useState<WizardDraft[]>(() => listDrafts());
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [tools, setTools] = useState<string[]>([]);
-  const [defaultModel, setDefaultModel] = useState(BASE_MODEL_OPTIONS[0]);
+  const [models, setModels] = useState<ModelProviderSummary[]>([]);
+  const [defaultModel, setDefaultModel] = useState("qwen2.5:14b");
 
   const [wizardDraft, setWizardDraft] = useState<WizardDraft | null>(null);
   const [wizardIsNew, setWizardIsNew] = useState(true);
@@ -122,6 +124,7 @@ export function BuilderScreen({ agents, dataVersion, onAgentsChanged, onRunAgent
   useEffect(() => {
     void listClasses().then(setClasses).catch(() => setClasses([]));
     void listTools().then(setTools).catch(() => setTools([]));
+    void listModels().then(setModels).catch(() => setModels([]));
     void getSettings()
       .then((s) => setDefaultModel(s.default_model))
       .catch(() => {});
@@ -178,7 +181,7 @@ export function BuilderScreen({ agents, dataVersion, onAgentsChanged, onRunAgent
     }
     try {
       const detail = details[row.name] ?? (await getAgentBuilderDetail(row.name));
-      setWizardDraft(draftFromDetail(detail, [defaultModel, ...BASE_MODEL_OPTIONS]));
+      setWizardDraft(draftFromDetail(detail, [defaultModel, ...models.map((m) => m.model_id)]));
       setWizardIsNew(false);
       setOriginalName(row.name);
       setMode("wizard");
@@ -346,6 +349,7 @@ export function BuilderScreen({ agents, dataVersion, onAgentsChanged, onRunAgent
           existingNames={rows.map((r) => r.name)}
           classes={classes}
           tools={tools}
+          models={models}
           defaultModel={defaultModel}
           submitError={submitError}
           saving={saving}

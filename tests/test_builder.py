@@ -9,8 +9,11 @@ from agent_kit.builder import (
     delete_agent,
     duplicate_agent,
     is_builder_generated,
+    read_sample_input,
     reload_registries,
+    seed_core_sample_inputs,
     update_agent,
+    write_sample_input,
 )
 from agent_kit.errors import (
     AgentNotFoundError,
@@ -251,3 +254,38 @@ def test_sample_input_round_trip(paths):
     assert read_sample_input("some_agent", paths) == {"name": "World"}
     delete_sample_input("some_agent", paths)
     assert read_sample_input("some_agent", paths) is None
+
+
+def test_seed_core_sample_inputs_fills_in_hello_and_news(paths):
+    assert read_sample_input("hello", paths) is None
+    assert read_sample_input("news", paths) is None
+
+    seed_core_sample_inputs(paths)
+
+    assert read_sample_input("hello", paths) == {"name": "Alice"}
+    assert read_sample_input("news", paths) == {"keywords": ["AI", "climate"]}
+
+
+def test_seed_core_sample_inputs_never_overwrites_an_existing_one(paths):
+    """A user editing hello/news's sample input via the wizard must stick —
+    the seed only fills a gap, it never resets what's already there."""
+    write_sample_input("hello", {"name": "someone the user chose"}, paths)
+
+    seed_core_sample_inputs(paths)
+
+    assert read_sample_input("hello", paths) == {"name": "someone the user chose"}
+    # news still gets seeded — the guard is per-agent, not all-or-nothing.
+    assert read_sample_input("news", paths) == {"keywords": ["AI", "climate"]}
+
+
+def test_seed_core_sample_inputs_is_idempotent(paths):
+    seed_core_sample_inputs(paths)
+    seed_core_sample_inputs(paths)
+    assert read_sample_input("hello", paths) == {"name": "Alice"}
+
+
+def test_seed_core_sample_inputs_ignores_unknown_core_agent_names(paths, monkeypatch):
+    """A future core agent not yet in the seed map is a no-op, not an error."""
+    monkeypatch.setattr(builder_module, "CORE_AGENT_NAMES", frozenset({"hello", "news", "future_agent"}))
+    seed_core_sample_inputs(paths)  # must not raise
+    assert read_sample_input("future_agent", paths) is None

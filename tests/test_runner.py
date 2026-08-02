@@ -113,6 +113,53 @@ def test_card_none_agent_calls_pydantic_ai_agent_with_none_kwargs(monkeypatch):
     assert kwargs["model_settings"] == {"temperature": 0.7}
 
 
+def test_unregistered_model_uses_the_local_provider(monkeypatch, tmp_path):
+    """Regression guard: a model with no registry entry — the only case that
+    existed before the model registry — still resolves to the shared local
+    provider_url with the fixed placeholder key, unchanged."""
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+    monkeypatch.setenv("AGENT_KIT_DATA_DIR", str(tmp_path / "agent_kit_data"))
+
+    with patch("agent_kit.runner.Agent") as mock_agent_cls, \
+         patch("agent_kit.runner.OpenAIChatModel"), \
+         patch("agent_kit.runner.OpenAIProvider") as mock_provider_cls:
+        mock_agent_cls.return_value.run_sync.return_value = _fake_run_result(Out(greeting="hi"))
+        Runner().execute(make_definition(), {"name": "x"})
+
+    _, kwargs = mock_provider_cls.call_args
+    assert kwargs["base_url"] == "http://localhost:11434/v1"
+    assert kwargs["api_key"] == "ollama"
+
+
+def test_frontier_registered_model_routes_to_its_own_provider(monkeypatch, tmp_path):
+    """A model registered as frontier is what actually makes 'frontier' mean
+    something: the Runner must call out to *that* provider, not the local one."""
+    from agent_kit.settings import ModelProviderEntry, PlaygroundSettings, save_settings
+
+    monkeypatch.delenv("STUB_AI_PROVIDERS", raising=False)
+    monkeypatch.setenv("AGENT_KIT_DATA_DIR", str(tmp_path / "agent_kit_data"))
+    save_settings(PlaygroundSettings(models=[
+        ModelProviderEntry(
+            model_id="gpt-4o", kind="frontier",
+            base_url="https://api.openai.com/v1", api_key="sk-test-key",
+        )
+    ]))
+    definition = AgentDefinition(
+        name=AGENT_NAME, description="d", system_prompt="sp", model="gpt-4o",
+        temperature=0.7, tools=[], output_model=Out, source_path=Path("x.yaml"),
+    )
+
+    with patch("agent_kit.runner.Agent") as mock_agent_cls, \
+         patch("agent_kit.runner.OpenAIChatModel"), \
+         patch("agent_kit.runner.OpenAIProvider") as mock_provider_cls:
+        mock_agent_cls.return_value.run_sync.return_value = _fake_run_result(Out(greeting="hi"))
+        Runner().execute(definition, {"name": "x"})
+
+    _, kwargs = mock_provider_cls.call_args
+    assert kwargs["base_url"] == "https://api.openai.com/v1"
+    assert kwargs["api_key"] == "sk-test-key"
+
+
 def make_carded_definition(stat_value: int = 60, curve: RuntimeCurve | None = None) -> AgentDefinition:
     stat = StatDefinition(
         value=stat_value,
