@@ -10,7 +10,7 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:openapi": "../.venv/bin/python ../scripts/dump_openapi.py",
+    "gen:openapi": "node scripts/gen-openapi.mjs",
     "gen:types": "npm run gen:openapi && openapi-typescript openapi.json -o src/api/schema.d.ts"
   },
   "dependencies": {

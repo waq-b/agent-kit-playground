@@ -39,11 +39,9 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      # A real .venv, not a bare `pip install`: frontend/package.json's
-      # gen:types script shells out to `../.venv/bin/python` (the documented
-      # local dev workflow — see README), so this runs the exact same command
-      # a developer runs, rather than a CI-only path that could quietly work
-      # differently.
+      # A real .venv, not a bare `pip install`: the gen:types script picks up
+      # ../.venv's Python (the documented local dev workflow, see README), so
+      # this runs the same command a developer runs.
       - name: Set up backend .venv
         run: |
           python -m venv .venv
