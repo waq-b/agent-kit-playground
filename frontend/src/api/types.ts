@@ -21,7 +21,14 @@ export type GradeResponse = S["GradeResponse"];
 
 export type ClassSummary = S["ClassSummary"];
 export type CardSpec = S["CardSpec"];
-export type FieldSpec = S["FieldSpec"];
+// FieldSpec is recursive (nested_fields) and used on both the request side
+// (CreateAgentRequest/UpdateAgentRequest) and the response side
+// (AgentBuilderDetail's field_spec — refinement Phase 2, Task 10), which
+// openapi-typescript renders as two structurally-identical schemas rather
+// than one. FieldSpec stays the request-building shape everything else
+// already uses; FieldSpecFromServer is only for reading the response back.
+export type FieldSpec = S["FieldSpec-Input"];
+export type FieldSpecFromServer = S["FieldSpec-Output"];
 export type AgentBuilderDetail = S["AgentBuilderDetail"];
 export type CreateAgentRequest = S["CreateAgentRequest"];
 export type UpdateAgentRequest = S["UpdateAgentRequest"];

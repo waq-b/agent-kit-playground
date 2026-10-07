@@ -5,6 +5,29 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/": {
+      "get": {
+        "summary": "Root",
+        "description": "This service is an API only \u2014 the Playground UI (`frontend/`) is a\nseparate React app, not served from here (see README: no StaticFiles\nmount, run it with `npm run dev` or `./dev.sh`). `/`, `/cards` and\n`/builder` used to serve a hand-rolled HTML/JS playground; removed once\nthe React app fully replaced it, rather than kept as a second,\nunmaintained UI claiming to be the same tool.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "summary": "List Agents",
@@ -916,60 +939,6 @@
           }
         }
       }
-    },
-    "/": {
-      "get": {
-        "summary": "Index",
-        "operationId": "index__get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/cards": {
-      "get": {
-        "summary": "Cards Page",
-        "operationId": "cards_page_cards_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/builder": {
-      "get": {
-        "summary": "Builder Page",
-        "operationId": "builder_page_builder_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -1037,6 +1006,52 @@
             "type": "object",
             "title": "Output Fields Summary"
           },
+          "input_model_editable": {
+            "type": "boolean",
+            "title": "Input Model Editable"
+          },
+          "input_fields_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Fields Summary"
+          },
+          "output_field_spec": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec-Output"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Field Spec"
+          },
+          "input_field_spec": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec-Output"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Field Spec"
+          },
           "sample_input": {
             "anyOf": [
               {
@@ -1063,6 +1078,10 @@
           "is_core",
           "output_model_editable",
           "output_fields_summary",
+          "input_model_editable",
+          "input_fields_summary",
+          "output_field_spec",
+          "input_field_spec",
           "sample_input"
         ],
         "title": "AgentBuilderDetail"
@@ -1379,10 +1398,24 @@
           },
           "output_fields": {
             "items": {
-              "$ref": "#/components/schemas/FieldSpec"
+              "$ref": "#/components/schemas/FieldSpec-Input"
             },
             "type": "array",
             "title": "Output Fields"
+          },
+          "input_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec-Input"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Fields"
           },
           "description": {
             "type": "string",
@@ -1521,7 +1554,7 @@
         ],
         "title": "DuplicateAgentRequest"
       },
-      "FieldSpec": {
+      "FieldSpec-Input": {
         "properties": {
           "name": {
             "type": "string",
@@ -1557,7 +1590,61 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/FieldSpec"
+                  "$ref": "#/components/schemas/FieldSpec-Input"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nested Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type"
+        ],
+        "title": "FieldSpec"
+      },
+      "FieldSpec-Output": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "integer",
+              "number",
+              "boolean",
+              "nested"
+            ],
+            "title": "Type"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          },
+          "is_list": {
+            "type": "boolean",
+            "title": "Is List",
+            "default": false
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "nested_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec-Output"
                 },
                 "type": "array"
               },
@@ -2116,7 +2203,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/FieldSpec"
+                  "$ref": "#/components/schemas/FieldSpec-Input"
                 },
                 "type": "array"
               },
@@ -2125,6 +2212,20 @@
               }
             ],
             "title": "Output Fields"
+          },
+          "input_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldSpec-Input"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Fields"
           },
           "description": {
             "anyOf": [

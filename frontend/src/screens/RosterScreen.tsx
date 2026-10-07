@@ -32,6 +32,10 @@ interface Props {
 /** Per-agent API reference, assembled from the two endpoints that expose it. */
 interface ApiReference {
   inputFields: { name: string; type: string }[];
+  /** False once an agent declares a real input_model (refinement Phase 1) —
+   * true only for the fallback path, inferring field names/types from the
+   * saved sample input. Drives whether the panel says so. */
+  inputInferredFromSample: boolean;
   outputFields: { name: string; type: string }[];
   exampleRequest: string;
 }
@@ -106,20 +110,31 @@ export function RosterScreen({ dataVersion, onConfigure }: Props) {
     setApiOpen((o) => ({ ...o, [name]: opening }));
     if (!opening || apiRefs[name]) return;
 
-    // Input types are not exposed by any endpoint — the closest real source is
-    // the saved sample input, so field names come from its keys and types are
-    // inferred from its values. Output types come from the builder detail.
+    // Input types come from the agent's real input_model when it has one
+    // (refinement Phase 1, Task 4). An agent without one yet falls back to
+    // inferring field names/types from the saved sample input — a proxy, not
+    // a contract, so the panel says so (see inputInferredFromSample below).
+    // Output types always come from the builder detail; sample input stays,
+    // demoted to an illustrative example request rather than the input
+    // source of truth.
     const [detail, sample] = await Promise.all([
       getAgentBuilderDetail(name).catch(() => null),
       getSampleInput(name).catch(() => null),
     ]);
+    const hasRealInputSchema = detail?.input_fields_summary != null;
     setApiRefs((refs) => ({
       ...refs,
       [name]: {
-        inputFields: Object.entries(sample ?? {}).map(([k, v]) => ({
-          name: k,
-          type: inferJsonType(v),
-        })),
+        inputFields: hasRealInputSchema
+          ? Object.entries(detail!.input_fields_summary!).map(([k, v]) => ({
+              name: k,
+              type: readableAnnotation(v),
+            }))
+          : Object.entries(sample ?? {}).map(([k, v]) => ({
+              name: k,
+              type: inferJsonType(v),
+            })),
+        inputInferredFromSample: !hasRealInputSchema,
         outputFields: Object.entries(detail?.output_fields_summary ?? {}).map(([k, v]) => ({
           name: k,
           type: readableAnnotation(v),
@@ -544,7 +559,16 @@ export function RosterScreen({ dataVersion, onConfigure }: Props) {
                                 </div>
                               ))}
                               {ref && ref.inputFields.length === 0 && (
-                                <span style={{ opacity: 0.5 }}>No sample input saved.</span>
+                                <span style={{ opacity: 0.5 }}>
+                                  {ref.inputInferredFromSample
+                                    ? "No sample input saved."
+                                    : "No input fields declared."}
+                                </span>
+                              )}
+                              {ref && ref.inputFields.length > 0 && ref.inputInferredFromSample && (
+                                <span style={{ opacity: 0.45, fontSize: 10.5, fontStyle: "italic" }}>
+                                  inferred from sample input — not a declared schema
+                                </span>
                               )}
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

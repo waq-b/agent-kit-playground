@@ -6,16 +6,42 @@
  * progress held in this browser, never sent to the API. It becomes a real agent
  * only via "Save & Register", which goes through the normal create/update path.
  */
-import type { WizardDraft } from "./wizard";
+import { blankOutputField, type WizardDraft } from "./wizard";
 
 const STORAGE_KEY = "agent-kit.builderDrafts";
 
 type DraftMap = Record<string, WizardDraft>;
 
+/**
+ * Backfills fields a draft saved before they existed won't have.
+ *
+ * `read()` trusts `JSON.parse` with a type assertion, not real validation —
+ * a draft saved in an earlier browser session is whatever shape it was saved
+ * as. When `inputFields`/`inputFieldsTouched`/`hasInputModel` were added, an
+ * older saved draft would deserialize with them `undefined` and crash the
+ * wizard on `draft.inputFields.map(...)`. Same defaults `draftFromDetail`
+ * uses for "no input model yet". `outputSpecIsReal`/`inputSpecIsReal`
+ * (Task 10) get the safer of the two possible defaults — `false`, i.e. "show
+ * the reconstructed-from-annotations caveat" — since an older draft's rows
+ * really did come from that lossy path, not the lossless one.
+ */
+function normalize(draft: WizardDraft): WizardDraft {
+  return {
+    ...draft,
+    inputFields: draft.inputFields ?? [blankOutputField()],
+    inputFieldsTouched: draft.inputFieldsTouched ?? false,
+    hasInputModel: draft.hasInputModel ?? false,
+    outputSpecIsReal: draft.outputSpecIsReal ?? false,
+    inputSpecIsReal: draft.inputSpecIsReal ?? false,
+  };
+}
+
 function read(): DraftMap {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as DraftMap) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as DraftMap;
+    return Object.fromEntries(Object.entries(parsed).map(([name, draft]) => [name, normalize(draft)]));
   } catch {
     // A corrupt blob shouldn't wedge the Builder — start over with none.
     return {};

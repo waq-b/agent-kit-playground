@@ -61,13 +61,16 @@ export function AgentWizard({
   const patchFields = (update: (fields: OutputFieldDraft[]) => OutputFieldDraft[]) =>
     setDraft((d) => ({ ...d, outputFields: update(d.outputFields), outputFieldsTouched: true }));
 
+  const patchInputFields = (update: (fields: OutputFieldDraft[]) => OutputFieldDraft[]) =>
+    setDraft((d) => ({ ...d, inputFields: update(d.inputFields), inputFieldsTouched: true }));
+
   const modelOptions = [
     ...buildModelOptions(models, [defaultModel, draft.model === CUSTOM_MODEL ? null : draft.model]),
     { value: CUSTOM_MODEL, label: "Custom…", kind: "local" as const },
   ];
 
   const attemptSave = (asDraft: boolean) => {
-    const found = validateDraft(draft, existingNames, originalName, asDraft);
+    const found = validateDraft(draft, existingNames, originalName, asDraft, isNew);
     setErrors(found);
     if (Object.keys(found).length) return;
     if (asDraft) onSaveDraft();
@@ -217,6 +220,64 @@ export function AgentWizard({
         </div>
       </section>
 
+      {/* Input model — required for a new agent (there's no fallback), optional
+          for an existing one that never got one. Same field-row editor as
+          Output model below, second independent instance. */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+          <div className="ak-kicker">Input model</div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: 12 }}
+            onClick={() => patchInputFields((f) => [...f, blankOutputField()])}
+          >
+            + Add field
+          </button>
+        </div>
+        {!draft.hasInputModel && (
+          <div style={{ fontSize: 11.5, opacity: 0.6 }}>
+            {isNew
+              ? "This becomes the real contract POST /run validates the input against — not just a hint."
+              : "This agent has no input model yet — POST /run currently accepts any JSON object " +
+                "unvalidated. Add fields below to give it a real contract, or leave it as-is."}
+          </div>
+        )}
+        {!isNew && draft.hasInputModel && !draft.inputFieldsTouched && (
+          <div style={{ fontSize: 11.5, opacity: 0.6 }}>
+            {draft.inputSpecIsReal
+              ? "Loaded from the original field definitions, including any nested sub-fields."
+              : "Reconstructed from the stored model's type annotations — nested sub-field " +
+                "structure may not be fully recovered."}{" "}
+            Leave it alone and the saved input model is kept exactly as-is; edit any row and the
+            whole model is regenerated from what you see here.
+          </div>
+        )}
+        {errors.inputFields && <span className="ak-error-text">{errors.inputFields}</span>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <FieldHeader />
+          {draft.inputFields.map((field) => (
+            <FieldRow
+              key={field.id}
+              field={field}
+              error={errors.inputFieldRows?.[field.id]}
+              fieldErrors={errors.inputFieldRows}
+              onChange={(p) =>
+                patchInputFields((fields) =>
+                  fields.map((f) => (f.id === field.id ? { ...f, ...p } : f)),
+                )
+              }
+              onRemove={() => patchInputFields((fields) => fields.filter((f) => f.id !== field.id))}
+              onNestedChange={(nested) =>
+                patchInputFields((fields) =>
+                  fields.map((f) => (f.id === field.id ? { ...f, nested } : f)),
+                )
+              }
+            />
+          ))}
+        </div>
+      </section>
+
       {/* Output model */}
       <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
@@ -232,9 +293,12 @@ export function AgentWizard({
         </div>
         {!isNew && !draft.outputFieldsTouched && (
           <div style={{ fontSize: 11.5, opacity: 0.6 }}>
-            Reconstructed from the stored model's type annotations. Leave it alone and the saved
-            output model is kept exactly as-is; edit any row and the whole model is regenerated
-            from what you see here.
+            {draft.outputSpecIsReal
+              ? "Loaded from the original field definitions, including any nested sub-fields."
+              : "Reconstructed from the stored model's type annotations — nested sub-field " +
+                "structure may not be fully recovered."}{" "}
+            Leave it alone and the saved output model is kept exactly as-is; edit any row and the
+            whole model is regenerated from what you see here.
           </div>
         )}
         {errors.fields && <span className="ak-error-text">{errors.fields}</span>}

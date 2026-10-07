@@ -216,10 +216,13 @@ export function BuilderScreen({ agents, dataVersion, onAgentsChanged, onRunAgent
           card: toCardSpec(wizardDraft),
           sample_input: sampleInput,
           // Omitted unless edited: the backend reads null as "leave the stored
-          // output model alone", which avoids regenerating it from a lossy
-          // reconstruction of its type annotations.
+          // output/input model alone", which avoids regenerating it from a
+          // lossy reconstruction of its type annotations.
           output_fields: wizardDraft.outputFieldsTouched
             ? toFieldSpecs(wizardDraft.outputFields)
+            : null,
+          input_fields: wizardDraft.inputFieldsTouched
+            ? toFieldSpecs(wizardDraft.inputFields)
             : null,
         };
         await updateAgent(wizardDraft.name, patch);

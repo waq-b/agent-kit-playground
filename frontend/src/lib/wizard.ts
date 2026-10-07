@@ -6,7 +6,14 @@
  * one string; the card fields collapse to one `CardSpec`) and because drafts can
  * be saved to localStorage in states the backend would reject.
  */
-import type { AgentBuilderDetail, CardSpec, CreateAgentRequest, FieldSpec, FieldType } from "../api/types";
+import type {
+  AgentBuilderDetail,
+  CardSpec,
+  CreateAgentRequest,
+  FieldSpec,
+  FieldSpecFromServer,
+  FieldType,
+} from "../api/types";
 
 export interface OutputFieldDraft {
   /** Stable local key for React and for per-row error mapping. */
@@ -28,6 +35,9 @@ export interface WizardDraft {
   customModel: string;
   temperature: number;
   outputFields: OutputFieldDraft[];
+  /** Same field-row shape as outputFields — an agent's input and output
+   * schemas are edited with the identical UI, just two independent lists. */
+  inputFields: OutputFieldDraft[];
   tools: string[];
   feeds: string[];
   mainClass: string;
@@ -47,6 +57,26 @@ export interface WizardDraft {
    * `output_fields` from the update entirely and the stored model is untouched.
    */
   outputFieldsTouched: boolean;
+  /** Same "only send if touched" contract as outputFieldsTouched, for input. */
+  inputFieldsTouched: boolean;
+  /**
+   * Whether the agent, as loaded, already had an input model — independent of
+   * inputFieldsTouched. Drives which of two messages the wizard shows for an
+   * *existing* agent: "reconstructed, leave alone or it regenerates" (has
+   * one) vs. "no input model yet, /run currently accepts anything
+   * unvalidated" (doesn't). False for a new agent's draft — there is no
+   * "loaded" state to have already had one.
+   */
+  hasInputModel: boolean;
+  /**
+   * Whether outputFields came from the real, persisted FieldSpec (refinement
+   * Phase 2, Task 10) rather than being guessed from stored type annotations.
+   * Purely cosmetic — it only changes which message is shown for an
+   * untouched field list — since both paths produce editable rows either way.
+   */
+  outputSpecIsReal: boolean;
+  /** Same as outputSpecIsReal, for the input side. */
+  inputSpecIsReal: boolean;
 }
 
 export const CUSTOM_MODEL = "custom";
@@ -67,6 +97,7 @@ export function blankDraft(defaultModel: string): WizardDraft {
     customModel: "",
     temperature: 0.7,
     outputFields: [blankOutputField()],
+    inputFields: [blankOutputField()],
     tools: [],
     feeds: [],
     mainClass: "",
@@ -77,6 +108,10 @@ export function blankDraft(defaultModel: string): WizardDraft {
     sampleInput: "",
     isCore: false,
     outputFieldsTouched: true, // a new agent must send its output model
+    inputFieldsTouched: true, // a new agent must send its input model too
+    hasInputModel: false,
+    outputSpecIsReal: true, // moot for a new agent — nothing to reconstruct
+    inputSpecIsReal: true,
   };
 }
 
@@ -122,6 +157,24 @@ export function parseAnnotation(annotation: string): Omit<OutputFieldDraft, "id"
   return { type, required, isList, nested: [] };
 }
 
+/**
+ * Lossless conversion of a real, persisted FieldSpec into an editable row —
+ * the accurate counterpart to parseAnnotation's best-effort guess. Used
+ * whenever the builder detail response actually has one (refinement Phase 2,
+ * Task 10); nested_fields round-trips exactly instead of being flattened to
+ * an empty "nested" placeholder.
+ */
+function fieldSpecToDraft(spec: FieldSpecFromServer): OutputFieldDraft {
+  return {
+    id: nextFieldId(),
+    name: spec.name,
+    type: spec.type,
+    required: spec.required,
+    isList: spec.is_list,
+    nested: (spec.nested_fields ?? []).map(fieldSpecToDraft),
+  };
+}
+
 export function draftFromDetail(detail: AgentBuilderDetail, knownModels: string[]): WizardDraft {
   const card = (detail.card ?? {}) as Record<string, unknown>;
   const known = knownModels.includes(detail.model);
@@ -132,11 +185,22 @@ export function draftFromDetail(detail: AgentBuilderDetail, knownModels: string[
     model: known ? detail.model : CUSTOM_MODEL,
     customModel: known ? "" : detail.model,
     temperature: detail.temperature,
-    outputFields: Object.entries(detail.output_fields_summary).map(([name, annotation]) => ({
-      id: nextFieldId(),
-      name,
-      ...parseAnnotation(annotation),
-    })),
+    outputFields: detail.output_field_spec
+      ? detail.output_field_spec.map(fieldSpecToDraft)
+      : Object.entries(detail.output_fields_summary).map(([name, annotation]) => ({
+          id: nextFieldId(),
+          name,
+          ...parseAnnotation(annotation),
+        })),
+    inputFields: detail.input_field_spec
+      ? detail.input_field_spec.map(fieldSpecToDraft)
+      : detail.input_fields_summary
+        ? Object.entries(detail.input_fields_summary).map(([name, annotation]) => ({
+            id: nextFieldId(),
+            name,
+            ...parseAnnotation(annotation),
+          }))
+        : [blankOutputField()],
     tools: [...detail.tools],
     feeds: [...detail.feeds],
     mainClass: typeof card.main_class === "string" ? card.main_class : "",
@@ -147,6 +211,10 @@ export function draftFromDetail(detail: AgentBuilderDetail, knownModels: string[
     sampleInput: detail.sample_input ? JSON.stringify(detail.sample_input, null, 2) : "",
     isCore: detail.is_core,
     outputFieldsTouched: false,
+    inputFieldsTouched: false,
+    hasInputModel: detail.input_fields_summary !== null,
+    outputSpecIsReal: detail.output_field_spec !== null,
+    inputSpecIsReal: detail.input_field_spec !== null,
   };
 }
 
@@ -189,10 +257,17 @@ export function parseSampleInput(text: string): Record<string, unknown> | null {
 }
 
 export function toCreateRequest(draft: WizardDraft): CreateAgentRequest {
+  // Unlike output (always mandatory — validateDraft already blocks a
+  // zero-field submission), an agent can legitimately be created with no
+  // input model at all. An empty input-fields list would fail server-side
+  // validation (a generated model needs >=1 field), so "nothing named" maps
+  // to null — "don't create one" — rather than to an invalid empty spec.
+  const inputFieldSpecs = toFieldSpecs(draft.inputFields);
   return {
     name: draft.name.trim(),
     system_prompt: draft.systemPrompt,
     output_fields: toFieldSpecs(draft.outputFields),
+    input_fields: inputFieldSpecs.length > 0 ? inputFieldSpecs : null,
     description: draft.description,
     model: resolvedModel(draft),
     temperature: draft.temperature,
@@ -208,8 +283,10 @@ export interface WizardErrors {
   systemPrompt?: string;
   model?: string;
   fields?: string;
+  inputFields?: string;
   sampleInput?: string;
   fieldRows?: Record<string, string>;
+  inputFieldRows?: Record<string, string>;
 }
 
 /**
@@ -225,6 +302,7 @@ export function validateDraft(
   existingNames: string[],
   originalName: string | null,
   asDraft: boolean,
+  isNew: boolean,
 ): WizardErrors {
   const errors: WizardErrors = {};
 
@@ -259,6 +337,18 @@ export function validateDraft(
     if (draft.outputFields.filter((f) => f.name.trim()).length === 0)
       errors.fields = "Add at least one output field.";
     if (Object.keys(rowErrors).length) errors.fieldRows = rowErrors;
+
+    // Input is required for a *new* agent (there's no fallback pass-through
+    // behaviour to preserve) but optional when editing an existing one — an
+    // agent may legitimately have no input model. Row-shape errors (bad
+    // names, duplicates) are still checked either way; a single untouched
+    // blank row reports no errors on its own (see collectFieldErrors), so
+    // this doesn't force existing agents into an error state they never
+    // asked for.
+    const inputRowErrors = collectFieldErrors(draft.inputFields);
+    if (isNew && draft.inputFields.filter((f) => f.name.trim()).length === 0)
+      errors.inputFields = "Add at least one input field.";
+    if (Object.keys(inputRowErrors).length) errors.inputFieldRows = inputRowErrors;
   }
 
   return errors;

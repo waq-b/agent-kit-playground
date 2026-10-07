@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "gen:openapi": "../.venv/bin/python ../scripts/dump_openapi.py",
     "gen:types": "npm run gen:openapi && openapi-typescript openapi.json -o src/api/schema.d.ts"
   },
@@ -16,11 +18,16 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^29.1.1",
     "openapi-typescript": "^7.8.0",
     "typescript": "^5.8.3",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^4.1.10"
   }
 }
