@@ -2,7 +2,7 @@
 
 A small Python library and developer playground for defining AI agents in YAML, running them against local models, and using graded feedback to shape how they behave.
 
-[![CI](https://github.com/waq-b/agent-kit-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/waq-b/agent-kit-pro/actions/workflows/ci.yml)
+[![CI](https://github.com/waq-b/agent-kit-playground/actions/workflows/ci.yml/badge.svg)](https://github.com/waq-b/agent-kit-playground/actions/workflows/ci.yml)
 
 ![The Run screen of the playground (real app, stub mode)](docs/images/playground-run.png)
 
