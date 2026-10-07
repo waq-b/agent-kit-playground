@@ -71,6 +71,10 @@ class FeedFetchError(AgentKitError):
     """Raised when an RSS feed cannot be fetched or parsed."""
 
 
+class PageFetchError(AgentKitError):
+    """Raised when a web page cannot be fetched or its URL is not http(s)."""
+
+
 class ClassNotFoundError(AgentKitError):
     """Raised when a requested class name is not in the ClassRegistry."""
 

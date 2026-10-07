@@ -684,6 +684,7 @@ def delete_sample_input(name: str, paths: BuilderPaths | None = None) -> None:
 _CORE_SAMPLE_INPUTS: dict[str, dict[str, Any]] = {
     "hello": {"name": "Alice"},
     "news": {"keywords": ["AI", "climate"]},
+    "webpage": {"url": "https://example.com"},
 }
 
 

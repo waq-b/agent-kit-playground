@@ -63,6 +63,10 @@ def _validate_builtin_input(name: str, input_data: dict[str, Any]) -> None:
         from agent_kit.agents.models.news import NewsInput
 
         NewsInput.model_validate(input_data)
+    elif name == "webpage":
+        from agent_kit.agents.models.webpage import WebpageInput
+
+        WebpageInput.model_validate(input_data)
 
 
 def _load_builtin_classes() -> None:
@@ -123,6 +127,19 @@ def _initialise() -> None:
                     relevance_note="Directly matches keyword 'climate'",
                 ),
             ]
+        ),
+    )
+
+    from agent_kit.agents.models.webpage import WebpageOutput
+    from agent_kit.tools.webpage import fetch_page_text
+
+    get_tool_registry().register("fetch_page_text", fetch_page_text)
+    get_stub_store().register(
+        "webpage",
+        WebpageOutput(
+            title="Example Domain",
+            summary="A placeholder page used for documentation examples.",
+            key_points=["The domain is reserved for illustrative use."],
         ),
     )
 

@@ -39,7 +39,7 @@ def test_list_cards_returns_only_carded_agents(client, isolated_registries):
     r = client.get("/api/v1/cards")
     assert r.status_code == 200
     names = {c["name"] for c in r.json()}
-    assert names == {"hello", "news"}  # both built-in agents have cards
+    assert names == {"hello", "news", "webpage"}  # all built-in agents have cards
 
 
 def test_list_cards_returns_correct_summary_fields(client, isolated_registries):

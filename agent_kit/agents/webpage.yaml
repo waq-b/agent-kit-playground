@@ -1,0 +1,26 @@
+name: webpage
+description: "Fetches a web page and summarises it into key points"
+system_prompt: |
+  You are a careful web page summariser. Use the fetch_page_text tool to
+  fetch the page at the URL you are given, then summarise only what the
+  fetched text says. Do not add facts that are not in the page.
+  Return structured JSON output only.
+model: qwen2.5:14b
+temperature: 0.2
+tools:
+  - fetch_page_text
+output_model: agent_kit.agents.models.webpage.WebpageOutput
+input_model: agent_kit.agents.models.webpage.WebpageInput
+card:
+  main_class: investigator
+  backstory: "A patient reader who checks the page before saying anything about it."
+  portrait: "📄"
+  base_stats:
+    accuracy: 65
+    insight: 55
+    speed: 50
+    reliability: 60
+  unlock_table:
+    - level: 2
+      unlock: "Pull Quote"
+      description: "Placeholder: this unlock is data only and has no effect yet."
