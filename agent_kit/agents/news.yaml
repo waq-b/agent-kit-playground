@@ -30,7 +30,7 @@ card:
       description: "Bonus emphasis toward stories confirmed by 2+ sources."
     - level: 4
       unlock: "Paid Model Access"
-      description: "Data-only placeholder — no second model provider is wired in v0.2."
+      description: "Placeholder: this unlock is data only and has no effect yet."
     - level: 6
       unlock: "Assistant Delegate"
-      description: "Data-only placeholder — no sub-agent delegation is wired in v0.2."
+      description: "Placeholder: this unlock is data only and has no effect yet."
