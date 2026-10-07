@@ -14,7 +14,7 @@ input_model: agent_kit.agents.models.webpage.WebpageInput
 card:
   main_class: investigator
   backstory: "A patient reader who checks the page before saying anything about it."
-  portrait: "📄"
+  portrait: "🔍"
   base_stats:
     accuracy: 65
     insight: 55

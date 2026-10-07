@@ -1,228 +1,113 @@
 # agent-kit
 
-A minimal, reusable Python library and developer web UI for running AI-agent-powered
-applications on local infrastructure.
+A small Python library and developer playground for defining AI agents in YAML, running them against local models, and using graded feedback to shape how they behave.
 
-- **`agent_kit/`** — the library: YAML agent definitions, a Pydantic-AI runner, a
-  character/stat layer, and a Game Master that synthesizes agent traits from graded feedback.
-- **`agent_kit/playground/`** — a FastAPI service exposing all of that over `/api/v1`.
-- **`frontend/`** — the Playground UI: a React + TypeScript app whose types are generated
-  from the service's own OpenAPI schema.
+[![CI](https://github.com/waq-b/agent-kit-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/waq-b/agent-kit-pro/actions/workflows/ci.yml)
 
-## Quick start
+![The Run screen of the playground (real app, stub mode)](docs/images/playground-run.png)
 
-```bash
-./dev.sh
+*The Run screen, running in stub mode (no model needed). Real screenshots of the app, not mockups.*
+
+## Why I built it
+
+I wanted a minimal, local-first way to define agents declaratively, get validated structured output from them, and explore one question: can user feedback change an agent's behaviour in a way that stays inspectable and testable, instead of being buried in a prompt that a model rewrites on its own?
+
+## How the feedback loop works
+
+In plain terms: **graded runs feed an evaluation loop that synthesises agent traits and proposes prompt revisions.**
+
+1. You run an agent and grade the result (thumbs up/down, more/less like this).
+2. Plain, deterministic code turns each grade into XP and small stat changes, and records it in SQLite.
+3. Each stat has authored effects: a text fragment added to the agent's behaviour and a bounded adjustment to runtime parameters (temperature, retries, tool timeout, concurrency). Which fragments and values apply is decided in code.
+4. A separate model, the Game Master (GM), rewords the selected fragments into one coherent trait paragraph that is appended to the system prompt. After enough graded runs it can also propose a change to the system prompt. A human has to approve it; the GM never applies changes itself.
+
+The model only handles wording. Scoring, selection and parameter changes are pure functions, so they are unit-testable and the GM can fail without breaking a run (the last good paragraph is reused and the agent is queued for a retry).
+
+### The game framing
+
+I dressed this up as an RPG because it made the mechanics easy to reason about and fun to poke at. Each agent has a character card with a level, XP, base stats, a class (for example Greeter, Investigator, News Hound), and an unlock table. Classes are YAML files and an agent can have a main class and a sub class whose effects stack. The GM is the "Game Master" who narrates the character. Under the costume it is the loop above.
+
+![Roster screen with character cards and the Game Master panel](docs/images/playground-roster.png)
+
+*The Roster screen (real app, stub mode): character cards for the three built-in agents and the Game Master panel.*
+
+## Features
+
+- **Agents as YAML.** Name, system prompt, model, temperature, tools, and Pydantic input and output models, loaded and validated at startup with a specific error type per failure.
+- **Pydantic AI runner.** Works against any OpenAI-compatible endpoint (local Ollama by default). Output is validated against the agent's output model and input against its input model.
+- **Stub mode.** `STUB_AI_PROVIDERS=1` returns registered fixtures and makes no model calls, so the app and the test suite run offline with no keys.
+- **Character layer and Game Master**, as described above.
+- **Playground.** A FastAPI service plus a React + TypeScript UI with Run, Roster, Builder (agent wizard and class builder), Models and Settings screens. You can create, edit and delete agents from the UI.
+- **Model provider registry.** Register local and "frontier" (hosted) models. Choosing a frontier model in the UI asks for confirmation first, because running it sends data off the machine (see Design decisions).
+- **Demo agents.** `hello` (no tools), `news` (fetches RSS feeds) and `webpage` (fetches a page and summarises it).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Y[agents/*.yaml] --> DL[DefinitionLoader] --> AR[AgentRegistry]
+  C[classes/*.yaml] --> CL[ClassLoader] --> CR[ClassRegistry]
+  IN[input] --> R[Runner]
+  AR --> R
+  R --> OUT[validated output]
+  OUT --> G[user grade] --> XP[xp_rules]
+  XP --> CS[(CardStore, SQLite)]
+  CS --> SE[stat_effects / stat_mapping]
+  SE --> R
+  CS -->|after N graded runs| GM[Game Master]
+  GM -->|trait paragraph| R
+  GM -.->|suggested prompt change, needs approval| UI[Playground UI]
+  API[FastAPI /api/v1] -->|OpenAPI| TS[generated TS types] --> UI
 ```
 
-That starts both processes with per-process labelled output and stops both on Ctrl-C:
+- `agent_kit/` is the library: loaders, registries, runner, card store, rules, GM.
+- `agent_kit/playground/app.py` is the FastAPI service.
+- `frontend/` is the React app.
 
-- `[api]` → FastAPI on <http://127.0.0.1:8000>
-- `[web]` → Vite dev server on <http://localhost:5173>
+## Stack
 
-On Windows:
+Python 3.12, Pydantic and Pydantic AI (pinned), FastAPI, SQLite, PyYAML, pytest and Hypothesis. React 19, TypeScript, Vite, Vitest and Testing Library. GitHub Actions.
 
-```powershell
-.\dev.ps1
-```
+## Run it locally
 
-Open <http://localhost:5173>. The dev server proxies `/api` to the backend, so the app is
-same-origin and CORS never comes into it.
-
-Override the backend address with `AGENT_KIT_HOST` / `AGENT_KIT_PORT`; the Vite proxy follows
-automatically.
-
-### First-time setup
-
-`dev.sh` refuses to start — with instructions — if either half isn't installed yet.
+Requires Python 3.12+ and Node 20+. No API keys or model needed in stub mode.
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
+(cd frontend && npm install)
 
-cd frontend && npm install
+STUB_AI_PROVIDERS=1 ./dev.sh
 ```
 
-## Running just the backend
+Open <http://localhost:5173>. This starts the API on `127.0.0.1:8000` and the Vite dev server together. Drop `STUB_AI_PROVIDERS` to use a local model through Ollama (default `qwen2.5:14b`; the endpoint is configurable in Settings). On Windows use `.\dev.ps1`; `./backend.sh` starts the API alone. All environment variables are listed in [`.env.example`](.env.example), and the playground is described in more detail in [docs/playground.md](docs/playground.md).
+
+## Tests and CI
+
+I ran both suites for this README:
+
+- Backend: **385 pytest tests**, all offline in stub mode, including 11 Hypothesis property-based tests (in `tests/test_properties.py`).
+- Frontend: **15 Vitest tests** (Testing Library, jsdom), plus `tsc` typecheck and a production build.
 
 ```bash
-./backend.sh
+STUB_AI_PROVIDERS=1 .venv/bin/python -m pytest
+cd frontend && npm run typecheck && npm test && npm run build
 ```
 
-```powershell
-.\backend.ps1
-```
+GitHub Actions runs both halves on every push and PR to `main`, plus a generated-types drift check.
 
-Same preflight checks as `dev.sh` (no frontend/Node required), same `AGENT_KIT_HOST` /
-`AGENT_KIT_PORT` overrides. Useful for hitting the API directly, or pointing a frontend dev
-server started separately at it. Manual equivalent:
+## Design decisions
 
-```bash
-.venv/bin/python -m uvicorn agent_kit.playground.app:app --host 127.0.0.1 --port 8000 --reload
-```
+1. **The model never scores or tunes itself.** XP, stat nudges, fragment selection and runtime parameters are pure functions with no I/O. The LLM only smooths prose, and prompt changes need human approval.
+2. **Stat effects are bounded deltas.** That is what lets several stats and two classes combine predictably, like modifiers in a tabletop game, and keeps every parameter in a safe range.
+3. **Types are generated, not hand-written.** `scripts/dump_openapi.py` writes `frontend/openapi.json` offline and `openapi-typescript` produces `schema.d.ts`. CI regenerates both and fails if the committed copies differ, so the frontend and the Pydantic models cannot drift silently.
+4. **Data leaving the machine needs a confirmation, and keys stay server-side.** Selecting a frontier model in any model dropdown shows where data will be sent and only applies on Confirm. Model API keys are never returned to the browser (only `has_api_key: true/false`). Be aware that the confirmation is a UI safeguard only: the API itself does not require it, and keys are stored in plain text in `agent_kit_data/settings.json` (git-ignored).
+5. **Stub mode as a first-class citizen.** Every code path that would call a model has a fixture path, which is what makes the whole suite deterministic and the demo keyless.
 
-## Running the two processes manually
+## Status
 
-Frontend only (expects a backend on port 8000):
+Personal project, version 0.5.0 (see [CHANGELOG.md](CHANGELOG.md)). The playground binds to localhost and has no authentication; it is a development tool, not a multi-tenant service. The FastAPI service does not serve the built frontend, so run the Vite dev server. Some unlock-table entries are data-only placeholders with no effect yet (for example the "Paid Model Access" and "Assistant Delegate" unlocks on `news`, and `webpage`'s "Pull Quote"), and live-model behaviour (the real runner and GM) was developed against a local `qwen2.5:14b` and is not covered by CI, which runs in stub mode.
 
-```bash
-cd frontend && npm run dev
-```
+## License
 
-Point the frontend at a backend somewhere else:
-
-```bash
-cd frontend && AGENT_KIT_API=http://127.0.0.1:9000 npm run dev
-```
-
-Production build of the frontend (static files in `frontend/dist/`):
-
-```bash
-cd frontend && npm run build
-```
-
-> The FastAPI service does not serve `frontend/dist/` — it has no `StaticFiles` mount, and
-> adding one would be a backend change. Serve the build with any static file server, or keep
-> using the dev server.
-
-## Frontend types are generated, not hand-written
-
-`frontend/src/api/schema.d.ts` is generated from the backend's OpenAPI document. Never edit it,
-and never hand-write a type that belongs to a Pydantic model.
-
-```bash
-cd frontend && npm run gen:types
-```
-
-That runs `scripts/dump_openapi.py` (offline — it imports the app, no server needed) to write
-`frontend/openapi.json`, then `openapi-typescript` to produce `schema.d.ts`. Both are committed
-so the contract the types came from is visible in review.
-
-`frontend/src/api/types.ts` gives those generated shapes readable aliases; that file, and the
-client in `frontend/src/api/client.ts`, are the only places the app touches the API.
-
-Re-run `npm run gen:types` after any change to the Pydantic models — `npm run typecheck` will
-then point at everything that needs updating.
-
-## Tests
-
-```bash
-.venv/bin/python -m pytest
-```
-
-Frontend typecheck:
-
-```bash
-cd frontend && npm run typecheck
-```
-
-## Configuration
-
-Settings are editable at runtime from the Playground's **Settings** screen and persist to
-`agent_kit_data/settings.json`. They are also readable and writable over the API:
-
-```
-GET  /api/v1/settings
-PUT  /api/v1/settings
-```
-
-Each maps to the environment variable the library already read, so nothing changes for code
-using agent-kit as a plain library:
-
-| Setting | Environment variable | Effect |
-| --- | --- | --- |
-| `stub_mode` | `STUB_AI_PROVIDERS` | Return registered fixtures; make no model calls |
-| `provider_url` | `AGENT_KIT_PROVIDER_URL` | Shared OpenAI-compatible endpoint every *local* model resolves to |
-| `gm_model` | `AGENT_KIT_GM_MODEL` | Model the Game Master uses for trait synthesis |
-| `ntfy_url` | `NTFY_URL` | Notification endpoint; unset disables notifications |
-| `db_path` | `AGENT_KIT_DB_PATH` | SQLite file backing the card store |
-| `default_model` | — | Default model pre-selected in the Builder wizard |
-| `respec_threshold` | — | Grade events since last synthesis before a respec is queued |
-| `auto_process_respec` | — | Run the respec immediately instead of waiting for *Process Queue* |
-| `suggestions_enabled` | — | Whether the GM may propose system-prompt revisions |
-
-**Precedence.** Before `settings.json` exists, the environment seeds the defaults — so
-`STUB_AI_PROVIDERS=1 ./dev.sh` still does what you expect. Once the file exists it is the source
-of truth and is applied to the environment at startup, otherwise a value saved in the UI would
-be silently ignored after a restart. Delete the file to go back to environment-only behaviour.
-
-Settings apply to the whole server process, not per browser tab. The playground binds to
-localhost and has no auth layer; this is a development tool, not a multi-tenant service.
-
-The Settings screen's **Base URL** field is the one exception — it is which server the browser
-talks to, so it lives in `localStorage`, not on any server.
-
-Other environment variables, not exposed in the UI:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `AGENT_KIT_DATA_DIR` | `agent_kit_data` | Where builder-created agents, classes and settings live |
-| `AGENT_KIT_GM_RETRIES` | `4` | GM structured-output retry budget |
-| `AGENT_KIT_GM_PROVIDER` | `ollama` | GM provider name |
-| `AGENT_KIT_GM_API_KEY` | — | API key when the GM provider needs one |
-
-## Playground screens
-
-- **Run** — pick an agent, send it a JSON input, read the structured output plus the raw prompt
-  and response, and grade the result. Grading is what feeds the character layer.
-- **Roster** — each agent's character card: level, XP, base and class stats, unlock table, tool
-  proficiency, and a per-agent API reference. Expand a card to see all of it.
-- **Builder** — create, edit, duplicate and delete agents through a wizard: identity, system
-  prompt, model settings, output model, tools and feeds, class assignment and character card,
-  and a sample input that pre-fills the Run screen. Also hosts the respec queue and GM
-  suggestion approval.
-- **Class Builder** — author a class as YAML or JSON, with a schema reference alongside. Reached
-  from *+ Create new class* in the wizard.
-- **Models** — the model provider registry: see below.
-- **Settings** — everything in the table above.
-
-## Model providers
-
-Any model name has always worked as long as the local endpoint (`provider_url` above) actually
-serves it — that hasn't changed. The **Models** screen adds a registry on top, for two things:
-
-1. **Convenience** — a registered model shows up in every dropdown that picks a model (Settings'
-   two model fields, the Builder wizard's), instead of you having to remember and retype it.
-2. **Reaching a provider other than the shared local one at all.**
-
-Each entry is one of:
-
-- **Local** — just a model id (and an optional label). Always resolves to the shared
-  `provider_url` above; registering one is pure convenience, never required.
-- **Frontier** — a model id plus its own base URL and API key, entered inline. This is the only
-  way to reach a provider other than the local one: the Runner and the Game Master have no other
-  source for that URL/key. Any OpenAI-compatible endpoint works — real OpenAI, a hosted gateway,
-  a self-hosted proxy with auth.
-
-**Picking a frontier model anywhere asks for confirmation first** — the dropdown shows what it
-resolves to (`<label> is a frontier model — running it sends data to <base_url>, outside your
-local machine`) and only applies the selection on Confirm. This is a UI safeguard, not a backend
-one: `POST /api/v1/models` itself doesn't require confirmation, so anything scripting the API
-directly bypasses it.
-
-**API keys** are stored in plain text in `agent_kit_data/settings.json`, the same as every other
-setting — consistent with this being a localhost-only dev tool with no auth layer. They are
-never sent back to the browser: every read (`GET /api/v1/models`, the create response, and
-`GET`/`PUT /api/v1/settings`) reports `has_api_key: true/false` instead of the key itself.
-
-```
-GET    /api/v1/models
-POST   /api/v1/models
-DELETE /api/v1/models/{model_id}
-```
-
-### Drafts are local
-
-*Save as draft* in the Builder keeps work in `localStorage` and never contacts the API — the
-backend has no draft concept, an agent either exists in the registry or it does not. A draft
-becomes a real agent only through *Save & Register*.
-
-### Editing an existing agent's output model
-
-The builder API exposes an agent's output fields only as stringified Python type annotations, so
-the wizard reconstructs the rows from those. Optionality, list-ness and scalar types survive;
-the sub-fields of a nested model cannot be recovered.
-
-The wizard therefore leaves the stored model completely alone unless you edit a row. Touch one
-and the whole output model is regenerated from what's on screen — so fill in any nested
-sub-fields before saving.
+MIT, see [LICENSE](LICENSE).
