@@ -23,3 +23,59 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # A real .venv, not a bare `pip install`: frontend/package.json's
+      # gen:types script shells out to `../.venv/bin/python` (the documented
+      # local dev workflow — see README), so this runs the exact same command
+      # a developer runs, rather than a CI-only path that could quietly work
+      # differently.
+      - name: Set up backend .venv
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # Type-drift guard: openapi.json and schema.d.ts are committed
+      # artifacts, generated from the backend's own OpenAPI schema. Regenerate
+      # them and fail if the result differs from what's committed — the two
+      # can otherwise drift silently whenever a Pydantic model changes without
+      # `npm run gen:types` having been re-run before the commit.
+      - name: Check generated types are up to date
+        working-directory: frontend
+        run: |
+          npm run gen:types
+          if ! git diff --exit-code -- openapi.json src/api/schema.d.ts; then
+            echo "::error::frontend/openapi.json and/or src/api/schema.d.ts are out of date." \
+                 "Run 'npm run gen:types' in frontend/ and commit the result."
+            exit 1
+          fi
