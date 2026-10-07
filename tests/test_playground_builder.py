@@ -23,6 +23,10 @@ def _simple_output_fields():
     return [{"name": "greeting", "type": "string"}]
 
 
+def _simple_input_fields():
+    return [{"name": "name", "type": "string"}]
+
+
 def test_full_create_run_grade_loop(client, isolated_registries):
     r = client.post(
         "/api/v1/builder/agents",
@@ -56,6 +60,122 @@ def test_edit_hello_prompt_succeeds(client, isolated_registries):
 
 def test_edit_hello_output_fields_returns_422(client, isolated_registries):
     r = client.put("/api/v1/builder/agents/hello", json={"output_fields": _simple_output_fields()})
+    assert r.status_code == 422
+
+
+def test_create_agent_without_input_fields_omits_input_model(client, isolated_registries):
+    r = client.post(
+        "/api/v1/builder/agents",
+        json={"name": "no_input_via_api", "system_prompt": "sp", "output_fields": _simple_output_fields()},
+    )
+    assert r.status_code == 200, r.text
+    detail = r.json()
+    assert detail["input_fields_summary"] is None
+    assert detail["input_model_editable"] is True  # nothing to edit, but adding one later is fine
+
+
+def test_create_agent_with_input_fields_sets_input_model(client, isolated_registries):
+    r = client.post(
+        "/api/v1/builder/agents",
+        json={
+            "name": "with_input_via_api", "system_prompt": "sp",
+            "output_fields": _simple_output_fields(), "input_fields": _simple_input_fields(),
+        },
+    )
+    assert r.status_code == 200, r.text
+    detail = r.json()
+    assert detail["input_fields_summary"] == {"name": "<class 'str'>"}
+    assert detail["input_model_editable"] is True
+
+    # And it's genuinely enforced at run time (Task 2), not just reported.
+    # {} would trip RunRequest's own pre-existing empty-object check before
+    # ever reaching input_model validation, so use a non-empty body that's
+    # still missing the required field.
+    r_run = client.post("/api/v1/agents/with_input_via_api/run", json={"input": {"wrong_field": "x"}})
+    assert r_run.status_code == 422
+    assert any(err["loc"] == ["name"] for err in r_run.json()["detail"])
+
+
+def test_builder_detail_exposes_the_lossless_field_spec(client, isolated_registries):
+    """Refinement Phase 2 Task 10: the real FieldSpec, not just the
+    string-annotation summary, is available for a builder-generated model —
+    the wizard uses this to make editing an existing agent's nested fields
+    lossless instead of reconstructed-and-guessed."""
+    r = client.post(
+        "/api/v1/builder/agents",
+        json={
+            "name": "spec_via_api", "system_prompt": "sp",
+            "output_fields": [
+                {"name": "items", "type": "nested", "is_list": True,
+                 "nested_fields": [{"name": "label", "type": "string"}]},
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text
+    detail = r.json()
+    assert detail["output_field_spec"] is not None
+    assert detail["output_field_spec"][0]["name"] == "items"
+    assert detail["output_field_spec"][0]["nested_fields"][0]["name"] == "label"
+    assert detail["input_field_spec"] is None  # no input_fields sent
+
+
+def test_builder_detail_field_spec_is_null_for_hand_written_models(client, isolated_registries):
+    r = client.get("/api/v1/agents/hello/builder")
+    assert r.status_code == 200
+    detail = r.json()
+    assert detail["output_field_spec"] is None
+    assert detail["input_field_spec"] is None
+
+
+def test_update_agent_can_add_input_fields_via_api(client, isolated_registries):
+    client.post(
+        "/api/v1/builder/agents",
+        json={"name": "gains_input_via_api", "system_prompt": "sp", "output_fields": _simple_output_fields()},
+    )
+    r = client.put(
+        "/api/v1/builder/agents/gains_input_via_api", json={"input_fields": _simple_input_fields()}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["input_fields_summary"] == {"name": "<class 'str'>"}
+
+
+def test_update_agent_leaving_input_fields_unset_preserves_it(client, isolated_registries):
+    client.post(
+        "/api/v1/builder/agents",
+        json={
+            "name": "preserve_input_via_api", "system_prompt": "sp",
+            "output_fields": _simple_output_fields(), "input_fields": _simple_input_fields(),
+        },
+    )
+    r = client.put(
+        "/api/v1/builder/agents/preserve_input_via_api", json={"system_prompt": "updated only"}
+    )
+    assert r.status_code == 200, r.text
+    detail = r.json()
+    assert detail["system_prompt"] == "updated only"
+    assert detail["input_fields_summary"] == {"name": "<class 'str'>"}
+
+
+def test_edit_hand_written_input_model_returns_422(client, isolated_registries, monkeypatch):
+    """Symmetric with test_edit_hello_output_fields_returns_422, once an
+    agent has a hand-written input_model. hello doesn't declare one yet
+    (that's Task 5), so this simulates it the same way the builder-level
+    test does: point a builder-generated agent's input_model at a real
+    hand-written class directly in YAML."""
+    client.post(
+        "/api/v1/builder/agents",
+        json={"name": "hand_written_input_via_api", "system_prompt": "sp", "output_fields": _simple_output_fields()},
+    )
+    paths = builder_module.DEFAULT_PATHS
+    yaml_path = paths.agents_dir / "hand_written_input_via_api.yaml"
+    yaml_path.write_text(
+        yaml_path.read_text() + "input_model: agent_kit.agents.models.hello.HelloInput\n"
+    )
+    builder_module.reload_registries(paths)
+
+    r = client.put(
+        "/api/v1/builder/agents/hand_written_input_via_api", json={"input_fields": _simple_input_fields()}
+    )
     assert r.status_code == 422
 
 

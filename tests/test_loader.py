@@ -9,6 +9,7 @@ from agent_kit.errors import (
     ClassNotFoundError,
     MissingFieldError,
     TemperatureRangeError,
+    UnresolvableInputModelError,
     UnresolvableOutputModelError,
     YAMLSyntaxError,
 )
@@ -16,6 +17,8 @@ from agent_kit.loader import DefinitionLoader
 
 # A real, always-importable output_model reference for test fixtures.
 OUTPUT_MODEL = "agent_kit.agents.models.hello.HelloOutput"
+# A real, always-importable input_model reference for test fixtures.
+INPUT_MODEL = "agent_kit.agents.models.hello.HelloInput"
 
 
 def test_loads_yaml_and_yml_files(tmp_path):
@@ -63,6 +66,39 @@ def test_unresolvable_output_model_raises_and_directory_continues(tmp_path):
     (tmp_path / "good.yaml").write_text(f"name: good\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n")
 
     with pytest.raises(UnresolvableOutputModelError):
+        DefinitionLoader().load_file(tmp_path / "bad.yaml")
+
+    defs = DefinitionLoader().load_directory(tmp_path)
+    assert [d.name for d in defs] == ["good"]
+
+
+def test_agent_without_input_model_has_none_input_model(tmp_path):
+    path = tmp_path / "a.yaml"
+    path.write_text(f"name: a\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n")
+
+    definition = DefinitionLoader().load_file(path)
+    assert definition.input_model is None
+
+
+def test_agent_with_input_model_resolves_it(tmp_path):
+    path = tmp_path / "a.yaml"
+    path.write_text(
+        f"name: a\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\ninput_model: {INPUT_MODEL}\n"
+    )
+
+    definition = DefinitionLoader().load_file(path)
+    from agent_kit.agents.models.hello import HelloInput
+
+    assert definition.input_model is HelloInput
+
+
+def test_unresolvable_input_model_raises_and_directory_continues(tmp_path):
+    (tmp_path / "bad.yaml").write_text(
+        f"name: bad\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\ninput_model: nonexistent.module.In\n"
+    )
+    (tmp_path / "good.yaml").write_text(f"name: good\nsystem_prompt: sp\noutput_model: {OUTPUT_MODEL}\n")
+
+    with pytest.raises(UnresolvableInputModelError):
         DefinitionLoader().load_file(tmp_path / "bad.yaml")
 
     defs = DefinitionLoader().load_directory(tmp_path)

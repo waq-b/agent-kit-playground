@@ -13,3 +13,12 @@ agent_kit_data/
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+
+# Local environment and tooling
+.env
+.env.*
+!.env.example
+.claude/
+node_modules/
+.coverage
+htmlcov/

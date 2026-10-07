@@ -15,6 +15,7 @@ from agent_kit.errors import (
     LoadSummaryError,
     MissingFieldError,
     TemperatureRangeError,
+    UnresolvableInputModelError,
     UnresolvableOutputModelError,
     YAMLSyntaxError,
 )
@@ -24,6 +25,21 @@ logger = logging.getLogger(__name__)
 _REQUIRED_FIELDS = ("name", "system_prompt", "output_model")
 _DEFAULT_MODEL = "qwen2.5:14b"
 _DEFAULT_TEMPERATURE = 0.7
+
+
+def _resolve_model_ref(ref: str, path: Path, error_cls: type[AgentKitError], field_name: str) -> type:
+    """Shared dotted-path resolution for output_model and input_model.
+
+    Identical mechanics for both — the only difference is which error type
+    wraps a failure, so callers get the same error hierarchy they already had
+    (UnresolvableOutputModelError / UnresolvableInputModelError).
+    """
+    try:
+        module_name, class_name = ref.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)
+    except Exception as e:
+        raise error_cls(f"cannot resolve {field_name} '{ref}' referenced in {path}: {e}") from e
 
 
 class DefinitionLoader:
@@ -48,15 +64,16 @@ class DefinitionLoader:
                 f"temperature {temperature!r} in {path} is outside the allowed range [0.0, 2.0]"
             )
 
-        output_model_ref = data["output_model"]
-        try:
-            module_name, class_name = output_model_ref.rsplit(".", 1)
-            module = importlib.import_module(module_name)
-            output_model = getattr(module, class_name)
-        except Exception as e:
-            raise UnresolvableOutputModelError(
-                f"cannot resolve output_model '{output_model_ref}' referenced in {path}: {e}"
-            ) from e
+        output_model = _resolve_model_ref(
+            data["output_model"], path, UnresolvableOutputModelError, "output_model"
+        )
+
+        input_model_ref = data.get("input_model")
+        input_model = (
+            _resolve_model_ref(input_model_ref, path, UnresolvableInputModelError, "input_model")
+            if input_model_ref is not None
+            else None
+        )
 
         card_data = data.get("card")
         card = parse_card(card_data, path) if card_data is not None else None
@@ -72,6 +89,7 @@ class DefinitionLoader:
             source_path=path,
             feeds=list(data.get("feeds", [])),
             card=card,
+            input_model=input_model,
         )
 
     def load_directory(self, directory: Path) -> list[AgentDefinition]:

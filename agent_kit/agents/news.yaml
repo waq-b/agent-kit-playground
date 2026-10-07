@@ -13,6 +13,7 @@ feeds:
   - https://feeds.bbci.co.uk/news/rss.xml
   - https://www.theguardian.com/uk/rss
 output_model: agent_kit.agents.models.news.NewsOutput
+input_model: agent_kit.agents.models.news.NewsInput
 card:
   main_class: news_hound
   sub_class: investigator

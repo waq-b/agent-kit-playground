@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from agent_kit import builder
@@ -77,6 +76,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    """This service is an API only — the Playground UI (`frontend/`) is a
+    separate React app, not served from here (see README: no StaticFiles
+    mount, run it with `npm run dev` or `./dev.sh`). `/`, `/cards` and
+    `/builder` used to serve a hand-rolled HTML/JS playground; removed once
+    the React app fully replaced it, rather than kept as a second,
+    unmaintained UI claiming to be the same tool."""
+    return {
+        "service": "agent-kit playground API",
+        "docs": "/docs",
+        "ui": "run the frontend separately — see README.md",
+    }
 
 
 class AgentSummary(BaseModel):
@@ -154,9 +168,20 @@ def run_agent_endpoint(agent_name: str, request: RunRequest) -> RunResponse:
     except AgentNotFoundError:
         raise HTTPException(status_code=404, detail=f"agent '{agent_name}' not found")
 
+    # Agents with no input_model keep the pass-through behaviour they've always
+    # had (Task 1's field is optional for exactly this reason). Agents with one
+    # get real 422s with field-level detail here, before Runner ever sees a
+    # malformed input — not a failure surfacing deep inside the agent.
+    input_data = request.input
+    if definition.input_model is not None:
+        try:
+            input_data = definition.input_model.model_validate(request.input).model_dump()
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=e.errors(include_url=False))
+
     runner = Runner()
     try:
-        result = runner.execute(definition, request.input)
+        result = runner.execute(definition, input_data)
     except AgentKitError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -295,6 +320,20 @@ class AgentBuilderDetail(BaseModel):
     is_core: bool
     output_model_editable: bool
     output_fields_summary: dict[str, str]
+    # None means "this agent has no input model at all" — distinct from an
+    # editable-but-empty one (which can't actually exist; a generated model
+    # always has at least one field). input_model_editable is True in that
+    # no-model-yet case too: adding a first one is always allowed, there's
+    # nothing hand-written to protect.
+    input_model_editable: bool
+    input_fields_summary: dict[str, str] | None
+    # The original FieldSpec list, when known (refinement Phase 2, Task 10) —
+    # None for a hand-written model, or a builder-generated one predating this
+    # field (no sidecar was ever written for it). *_fields_summary above is
+    # never removed: it's the fallback the wizard reconstructs from when this
+    # is None, since it's derivable for every model, hand-written or not.
+    output_field_spec: list[FieldSpec] | None
+    input_field_spec: list[FieldSpec] | None
     sample_input: dict[str, Any] | None
 
 
@@ -302,6 +341,10 @@ class CreateAgentRequest(BaseModel):
     name: str
     system_prompt: str
     output_fields: list[FieldSpec]
+    # Optional at the API layer — Task 1's "optional at load time" carries
+    # through here. The wizard enforces "required for new agents" client-side;
+    # a direct API caller can still omit it on purpose.
+    input_fields: list[FieldSpec] | None = None
     description: str = ""
     model: str = "qwen2.5:14b"
     temperature: float = 0.7
@@ -314,6 +357,9 @@ class CreateAgentRequest(BaseModel):
 class UpdateAgentRequest(BaseModel):
     system_prompt: str | None = None
     output_fields: list[FieldSpec] | None = None
+    # None = leave the input model exactly as it is (same "only send if
+    # actually touched" contract output_fields already has).
+    input_fields: list[FieldSpec] | None = None
     description: str | None = None
     model: str | None = None
     temperature: float | None = None
@@ -362,6 +408,19 @@ def _agent_builder_detail(definition: AgentDefinition) -> AgentBuilderDetail:
             field_name: str(field.annotation)
             for field_name, field in definition.output_model.model_fields.items()
         },
+        input_model_editable=(
+            True if definition.input_model is None else builder.is_input_builder_generated(definition)
+        ),
+        input_fields_summary=(
+            {
+                field_name: str(field.annotation)
+                for field_name, field in definition.input_model.model_fields.items()
+            }
+            if definition.input_model is not None
+            else None
+        ),
+        output_field_spec=builder.read_output_field_spec(definition.name),
+        input_field_spec=builder.read_input_field_spec(definition.name),
         sample_input=builder.read_sample_input(definition.name),
     )
 
@@ -404,6 +463,7 @@ def create_agent_endpoint(request: CreateAgentRequest) -> AgentBuilderDetail:
             request.name,
             system_prompt=request.system_prompt,
             output_fields=request.output_fields,
+            input_fields=request.input_fields,
             description=request.description,
             model=request.model,
             temperature=request.temperature,
@@ -424,6 +484,7 @@ def update_agent_endpoint(agent_name: str, request: UpdateAgentRequest) -> Agent
             agent_name,
             system_prompt=request.system_prompt,
             output_fields=request.output_fields,
+            input_fields=request.input_fields,
             description=request.description,
             model=request.model,
             temperature=request.temperature,
@@ -714,784 +775,6 @@ def delete_model(model_id: str) -> dict[str, str]:
     return {"status": "deleted", "model_id": model_id}
 
 
-_INDEX_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>agent-kit playground</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #ffffff; }
-  h1 { font-size: 1.4rem; }
-  select, textarea, button { font-family: inherit; font-size: 1rem; }
-  textarea { width: 100%; box-sizing: border-box; min-height: 6rem; }
-  #agent-list { margin-bottom: 1.5rem; }
-  .agent-entry { padding: 0.4rem 0; border-bottom: 1px solid #eee; }
-  .agent-entry b { color: #222; }
-  form { display: flex; flex-direction: column; gap: 0.6rem; max-width: 500px; }
-  #error { color: #b00020; white-space: pre-wrap; }
-  #output pre { background: #f5f5f5; padding: 0.75rem; overflow-x: auto; border-radius: 4px; }
-  details summary { cursor: pointer; margin-top: 0.5rem; }
-  nav a { font-size: 0.9rem; }
-  .grading { margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .grading button { cursor: pointer; }
-  #grade-status { color: #2a6f2a; margin-top: 0.4rem; min-height: 1.2rem; }
-</style>
-</head>
-<body>
-<h1>agent-kit playground</h1>
-<nav><a href="/cards">View character roster →</a> · <a href="/builder">Build/edit agents →</a></nav>
-
-<div id="agent-list">Loading agents…</div>
-
-<form id="run-form">
-  <label for="agent-select">Agent</label>
-  <select id="agent-select" name="agent"></select>
-
-  <label for="input-text">Input (JSON object)</label>
-  <textarea id="input-text" name="input">{}</textarea>
-
-  <button type="submit">Run</button>
-</form>
-
-<div id="error"></div>
-<div id="output"></div>
-
-<script>
-let agents = [];
-
-async function loadAgents() {
-  const res = await fetch('/api/v1/agents');
-  agents = await res.json();
-  const listEl = document.getElementById('agent-list');
-  const selectEl = document.getElementById('agent-select');
-  selectEl.innerHTML = '';
-
-  if (agents.length === 0) {
-    listEl.textContent = 'No agents available.';
-    return;
-  }
-
-  listEl.innerHTML = agents.map(
-    a => `<div class="agent-entry"><b>${a.name}</b> — ${a.description}</div>`
-  ).join('');
-
-  for (const a of agents) {
-    const opt = document.createElement('option');
-    opt.value = a.name;
-    opt.textContent = a.name;
-    selectEl.appendChild(opt);
-  }
-
-  const preselect = new URLSearchParams(window.location.search).get('agent');
-  if (preselect && agents.some(a => a.name === preselect)) {
-    selectEl.value = preselect;
-    try {
-      const sampleRes = await fetch(`/api/v1/agents/${encodeURIComponent(preselect)}/sample-input`);
-      const sample = await sampleRes.json();
-      if (sample) {
-        document.getElementById('input-text').value = JSON.stringify(sample, null, 2);
-      }
-    } catch (e) { /* no sample input available — fine, leave the default {} */ }
-  }
-}
-
-function formatDetail(detail) {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail.map(d => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
-  }
-  return JSON.stringify(detail);
-}
-
-let lastRun = null;
-
-function sendGrade(action) {
-  if (!lastRun) return;
-  const statusEl = document.getElementById('grade-status');
-  fetch(`/api/v1/agents/${encodeURIComponent(lastRun.agentName)}/grade`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, tool_used: lastRun.toolUsed }),
-  })
-    .then(async (res) => {
-      const result = await res.json();
-      if (!res.ok) {
-        statusEl.textContent = formatDetail(result.detail) || 'Could not record feedback.';
-        return;
-      }
-      statusEl.textContent = result.leveled_up
-        ? `+${result.xp_delta} XP — level up! Now level ${result.new_level}.`
-        : `+${result.xp_delta} XP (total ${result.new_xp}, level ${result.new_level}).`;
-    })
-    .catch(() => { statusEl.textContent = 'Could not record feedback.'; });
-}
-
-function sendImplicitView() {
-  if (!lastRun || lastRun.implicitViewSent) return;
-  lastRun.implicitViewSent = true;
-  sendGrade('implicit_view');
-}
-
-document.getElementById('run-form').addEventListener('submit', async (evt) => {
-  evt.preventDefault();
-  const errorEl = document.getElementById('error');
-  const outputEl = document.getElementById('output');
-  errorEl.textContent = '';
-  outputEl.innerHTML = '';
-
-  const agentName = document.getElementById('agent-select').value;
-  const inputText = document.getElementById('input-text').value;
-
-  let inputObj;
-  try {
-    inputObj = JSON.parse(inputText);
-  } catch (e) {
-    errorEl.textContent = 'Input is not valid JSON: ' + e.message;
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentName)}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: inputObj }),
-    });
-    const data = await res.json();
-
-    if (!res.ok) {
-      errorEl.textContent = (data && data.detail) ? formatDetail(data.detail) : `Request failed (${res.status})`;
-      return;
-    }
-
-    lastRun = {
-      agentName,
-      toolUsed: (data.tools_used && data.tools_used[0]) || null,
-      implicitViewSent: false,
-    };
-
-    outputEl.innerHTML = `
-      <h3>Output</h3>
-      <pre>${JSON.stringify(data.output, null, 2)}</pre>
-      <details id="raw-prompt-details"><summary>Raw prompt</summary><pre>${data.raw_prompt}</pre></details>
-      <details id="raw-response-details"><summary>Raw response</summary><pre>${data.raw_response}</pre></details>
-      <div class="grading">
-        <span>Rate this result:</span>
-        <button type="button" onclick="sendGrade('thumbs_up')">👍</button>
-        <button type="button" onclick="sendGrade('thumbs_down')">👎</button>
-        <button type="button" onclick="sendGrade('more_like_this')">More like this</button>
-        <button type="button" onclick="sendGrade('less_like_this')">Less like this</button>
-      </div>
-      <div id="grade-status"></div>
-    `;
-    document.getElementById('raw-prompt-details').addEventListener('toggle', sendImplicitView);
-    document.getElementById('raw-response-details').addEventListener('toggle', sendImplicitView);
-  } catch (e) {
-    errorEl.textContent = 'Request failed: ' + e.message;
-  }
-});
-
-loadAgents();
-</script>
-</body>
-</html>
-"""
-
-
-@app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return _INDEX_HTML
-
-
-_CARDS_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>agent-kit playground — roster</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #ffffff; }
-  h1 { font-size: 1.4rem; }
-  nav a { font-size: 0.9rem; }
-  #roster { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem; }
-  .card { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; width: 260px; }
-  .card .portrait { font-size: 2.5rem; }
-  .card h2 { font-size: 1.1rem; margin: 0.3rem 0 0; }
-  .card .meta { color: #666; font-size: 0.85rem; margin-bottom: 0.5rem; }
-  .card .xp-bar { background: #eee; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 0.6rem; }
-  .card .xp-bar-fill { background: #2a6f2a; height: 100%; }
-  .card .stat-group h3 { font-size: 0.8rem; text-transform: uppercase; color: #888; margin: 0.5rem 0 0.2rem; }
-  .card .stat-row { display: flex; justify-content: space-between; font-size: 0.85rem; }
-  .respec-badge { background: #fff4e0; color: #8a5a00; border: 1px solid #f0d9a8; border-radius: 4px; font-size: 0.75rem; padding: 0.15rem 0.4rem; margin-bottom: 0.5rem; display: inline-block; }
-</style>
-</head>
-<body>
-<h1>agent-kit playground — roster</h1>
-<nav><a href="/">← Run agents</a> · <a href="/builder">Build/edit agents →</a></nav>
-
-<div id="roster">Loading cards…</div>
-
-<script>
-function statRows(stats) {
-  return Object.entries(stats).map(
-    ([name, value]) => `<div class="stat-row"><span>${name}</span><span>${value}</span></div>`
-  ).join('');
-}
-
-async function loadCards() {
-  const res = await fetch('/api/v1/cards');
-  const cards = await res.json();
-  const rosterEl = document.getElementById('roster');
-
-  if (cards.length === 0) {
-    rosterEl.textContent = 'No character cards available.';
-    return;
-  }
-
-  rosterEl.innerHTML = cards.map(c => {
-    const xpIntoLevel = c.xp % 50;
-    const xpPercent = Math.max(0, Math.min(100, (xpIntoLevel / 50) * 100));
-    const classLine = c.sub_class ? `${c.main_class} / ${c.sub_class}` : c.main_class;
-    return `
-      <div class="card">
-        <div class="portrait">${c.portrait || '🤖'}</div>
-        <h2>${c.title}</h2>
-        <div class="meta">${c.name} · ${classLine} · Level ${c.level}</div>
-        ${c.awaiting_respec ? '<div class="respec-badge">⚠️ Awaiting respec</div>' : ''}
-        <div class="xp-bar"><div class="xp-bar-fill" style="width:${xpPercent}%"></div></div>
-        <div class="stat-group">
-          <h3>Base stats</h3>
-          ${statRows(c.base_stats)}
-        </div>
-        <div class="stat-group">
-          <h3>Class stats</h3>
-          ${statRows(c.class_stats)}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-loadCards();
-</script>
-</body>
-</html>
-"""
-
-
-@app.get("/cards", response_class=HTMLResponse)
-def cards_page() -> str:
-    return _CARDS_HTML
-
-
-_BUILDER_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>agent-kit playground — builder</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #ffffff; }
-  h1 { font-size: 1.4rem; }
-  h2 { font-size: 1.1rem; margin-top: 1.5rem; }
-  nav a { font-size: 0.9rem; }
-  input[type=text], input:not([type]), textarea, select { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 1rem; padding: 0.3rem; }
-  textarea { min-height: 4rem; }
-  label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
-  fieldset { margin-top: 1rem; }
-  .agent-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0; border-bottom: 1px solid #eee; }
-  .agent-row .name { flex: 1; }
-  .agent-row button { cursor: pointer; }
-  .field-row { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; }
-  .field-row input[type=text], .field-row select { width: auto; flex: 1; min-width: 6rem; }
-  .field-row .nested-editor { width: 100%; padding-left: 1.5rem; border-left: 2px solid #eee; margin-top: 0.3rem; }
-  #builder-error { color: #b00020; white-space: pre-wrap; margin-top: 0.6rem; }
-  #builder-success { color: #2a6f2a; margin-top: 0.6rem; }
-  #model-check-banner { font-size: 0.85rem; color: #666; margin-top: 0.2rem; }
-  .core-badge { font-size: 0.75rem; background: #eee; border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.4rem; }
-  .readonly-note { color: #888; font-size: 0.85rem; font-style: italic; }
-  .code-editor { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; min-height: 8rem; tab-size: 2; background: #f8f8f8; }
-  .field-error { color: #b00020; font-size: 0.85rem; white-space: pre-wrap; margin-top: 0.3rem; }
-  .suggestion { border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.6rem; margin-bottom: 0.6rem; }
-  .suggestion pre { background: #f5f5f5; padding: 0.5rem; overflow-x: auto; white-space: pre-wrap; font-size: 0.8rem; }
-  .diff-old pre { border-left: 3px solid #d9a0a0; }
-  .diff-new pre { border-left: 3px solid #a0d9a8; }
-  #respec-status { color: #2a6f2a; font-size: 0.9rem; min-height: 1.2rem; }
-</style>
-</head>
-<body>
-<h1>agent-kit playground — builder</h1>
-<nav><a href="/">← Run agents</a> · <a href="/cards">Roster →</a></nav>
-
-<h2>Existing agents</h2>
-<div id="agent-list">Loading…</div>
-
-<h2>Respec queue <button type="button" onclick="processRespecQueue()">Process queue</button></h2>
-<div id="respec-queue">Loading…</div>
-<div id="respec-status"></div>
-
-<h2>GM suggestions</h2>
-<div id="gm-suggestions">Loading…</div>
-
-<h2 id="form-heading">Create a new agent</h2>
-<form id="builder-form">
-  <label>Name
-    <input id="f-name" required>
-  </label>
-  <label>Description
-    <input id="f-description">
-  </label>
-  <label>System prompt
-    <textarea id="f-system-prompt" required></textarea>
-  </label>
-  <label>Model
-    <input id="f-model" value="qwen2.5:14b">
-  </label>
-  <div id="model-check-banner"></div>
-  <label>Temperature
-    <input id="f-temperature" type="number" step="0.1" min="0" max="2" value="0.7">
-  </label>
-
-  <fieldset id="output-fields-fieldset">
-    <legend>Output fields</legend>
-    <div id="field-rows"></div>
-    <button type="button" onclick="addFieldRow()">+ Add field</button>
-  </fieldset>
-
-  <fieldset>
-    <legend>Class (optional)</legend>
-    <label>Main class
-      <select id="f-main-class"><option value="">(none)</option></select>
-    </label>
-    <label>Sub class
-      <select id="f-sub-class"><option value="">(none)</option></select>
-    </label>
-    <button type="button" onclick="toggleNewClassForm()">+ Create new class</button>
-    <div id="new-class-form" style="display:none; margin-top: 0.5rem;">
-      <label>Class definition (YAML or JSON)
-        <textarea id="nc-content" class="code-editor" spellcheck="false">name: explorer
-title: "Explorer"
-description: "A curious wanderer who follows leads wherever they go."
-stats:
-  curiosity:
-    value: 70
-    # Bands are ordered low -> high and split 0-100 evenly.
-    # Labels are cosmetic; any number of bands is allowed.
-    prompt_effect:
-      - label: "incurious"
-        text: "You answer exactly what was asked and never volunteer more."
-      - label: "curious"
-        text: "You follow the most promising thread beyond the literal question."
-      - label: "insatiable"
-        text: "You chase every interesting lead and surface what you found along the way."
-    # Deltas layered on top of the base-stat values, interpolated by stat value.
-    runtime_effect:
-      temperature: {at_0: -0.1, at_100: 0.2}
-</textarea>
-      </label>
-      <div id="new-class-error" class="field-error"></div>
-      <button type="button" onclick="submitNewClass()">Create class</button>
-    </div>
-  </fieldset>
-
-  <label>Sample input (JSON, optional — pre-fills the Run screen)
-    <textarea id="f-sample-input">{}</textarea>
-  </label>
-
-  <button type="submit" id="submit-btn">Create agent</button>
-  <button type="button" id="cancel-edit-btn" style="display:none" onclick="startCreate()">Cancel edit</button>
-</form>
-
-<div id="builder-error"></div>
-<div id="builder-success"></div>
-
-<script>
-let editingAgent = null;
-let outputEditable = true;
-
-function fieldRowHtml(field) {
-  field = field || { name: '', type: 'string', required: true, is_list: false };
-  return `
-    <div class="field-row">
-      <input type="text" class="fld-name" placeholder="field name" value="${field.name}">
-      <select class="fld-type" onchange="onFieldTypeChange(this)">
-        <option value="string" ${field.type === 'string' ? 'selected' : ''}>string</option>
-        <option value="integer" ${field.type === 'integer' ? 'selected' : ''}>integer</option>
-        <option value="number" ${field.type === 'number' ? 'selected' : ''}>number</option>
-        <option value="boolean" ${field.type === 'boolean' ? 'selected' : ''}>boolean</option>
-        <option value="nested" ${field.type === 'nested' ? 'selected' : ''}>nested object</option>
-      </select>
-      <label><input type="checkbox" class="fld-list" ${field.is_list ? 'checked' : ''}> list</label>
-      <label><input type="checkbox" class="fld-required" ${field.required ? 'checked' : ''}> required</label>
-      <button type="button" onclick="this.closest('.field-row').remove()">Remove</button>
-      <div class="nested-editor" style="display:${field.type === 'nested' ? 'block' : 'none'}">
-        <div class="nested-field-rows"></div>
-        <button type="button" onclick="addFieldRow(null, this.closest('.field-row'))">+ Add nested field</button>
-      </div>
-    </div>
-  `;
-}
-
-function addFieldRow(field, parentRow) {
-  const container = parentRow
-    ? parentRow.querySelector('.nested-editor > .nested-field-rows')
-    : document.getElementById('field-rows');
-  container.insertAdjacentHTML('beforeend', fieldRowHtml(field));
-}
-
-function onFieldTypeChange(selectEl) {
-  const row = selectEl.closest('.field-row');
-  const nestedEditor = row.querySelector('.nested-editor');
-  nestedEditor.style.display = selectEl.value === 'nested' ? 'block' : 'none';
-}
-
-function collectFieldSpecs(container) {
-  const rows = container.querySelectorAll(':scope > .field-row');
-  const specs = [];
-  for (const row of rows) {
-    const name = row.querySelector('.fld-name').value.trim();
-    if (!name) continue;
-    const type = row.querySelector('.fld-type').value;
-    const spec = {
-      name,
-      type,
-      is_list: row.querySelector('.fld-list').checked,
-      required: row.querySelector('.fld-required').checked,
-    };
-    if (type === 'nested') {
-      spec.nested_fields = collectFieldSpecs(row.querySelector('.nested-editor > .nested-field-rows'));
-    }
-    specs.push(spec);
-  }
-  return specs;
-}
-
-async function loadClasses() {
-  const res = await fetch('/api/v1/classes');
-  const classes = await res.json();
-  for (const selId of ['f-main-class', 'f-sub-class']) {
-    const sel = document.getElementById(selId);
-    sel.innerHTML = '<option value="">(none)</option>' +
-      classes.map(c => `<option value="${c.name}">${c.title}</option>`).join('');
-  }
-}
-
-function toggleNewClassForm() {
-  const el = document.getElementById('new-class-form');
-  el.style.display = el.style.display === 'none' ? 'block' : 'none';
-}
-
-async function submitNewClass() {
-  const errorEl = document.getElementById('new-class-error');
-  errorEl.textContent = '';
-  const content = document.getElementById('nc-content').value;
-
-  const res = await fetch('/api/v1/builder/classes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    errorEl.textContent = formatDetail(data.detail);
-    return;
-  }
-  await loadClasses();
-  document.getElementById('f-main-class').value = data.name;
-  toggleNewClassForm();
-}
-
-function formatDetail(detail) {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail.map(d => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
-  }
-  return JSON.stringify(detail);
-}
-
-async function loadAgentList() {
-  const res = await fetch('/api/v1/agents');
-  const agents = await res.json();
-  const el = document.getElementById('agent-list');
-  if (agents.length === 0) {
-    el.textContent = 'No agents yet.';
-    return;
-  }
-  el.innerHTML = agents.map(a => `
-    <div class="agent-row">
-      <span class="name">${a.name}</span>
-      <button type="button" onclick="startEdit('${a.name}')">Edit</button>
-      <button type="button" onclick="duplicateAgent('${a.name}')">Duplicate</button>
-      <button type="button" onclick="deleteAgentPrompt('${a.name}')">Delete</button>
-    </div>
-  `).join('');
-}
-
-async function loadRespecQueue() {
-  const res = await fetch('/api/v1/gm/queue');
-  const queue = await res.json();
-  const el = document.getElementById('respec-queue');
-  el.innerHTML = queue.length === 0
-    ? '<span class="readonly-note">No agents awaiting respec.</span>'
-    : queue.map(q => `
-        <div class="agent-row">
-          <span class="name">⚠️ ${q.agent_name}</span>
-          <span class="readonly-note">waiting since ${(q.pending_since || '').slice(0, 19)}</span>
-        </div>`).join('');
-}
-
-async function processRespecQueue() {
-  const statusEl = document.getElementById('respec-status');
-  statusEl.textContent = 'Asking the GM to respec queued agents…';
-  try {
-    const res = await fetch('/api/v1/gm/queue/process', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) {
-      statusEl.textContent = formatDetail(data.detail);
-      return;
-    }
-    statusEl.textContent =
-      `Processed ${data.processed}: ${data.resynthesized.length} respecced` +
-      (data.still_pending.length ? `, ${data.still_pending.length} still waiting (GM unavailable)` : '');
-    await loadRespecQueue();
-    await loadSuggestions();
-  } catch (e) {
-    statusEl.textContent = 'Could not reach the GM queue: ' + e.message;
-  }
-}
-
-async function loadSuggestions() {
-  const res = await fetch('/api/v1/gm/suggestions');
-  const suggestions = await res.json();
-  const el = document.getElementById('gm-suggestions');
-  el.innerHTML = suggestions.length === 0
-    ? '<span class="readonly-note">No pending GM suggestions.</span>'
-    : suggestions.map(s => `
-        <div class="suggestion">
-          <div><b>${s.agent_name}</b> — ${s.rationale}</div>
-          <details>
-            <summary>Proposed system prompt</summary>
-            <div class="diff-old"><b>current:</b><pre>${s.current_system_prompt}</pre></div>
-            <div class="diff-new"><b>suggested:</b><pre>${s.suggested_system_prompt}</pre></div>
-          </details>
-          <button type="button" onclick="resolveSuggestion(${s.id}, 'approve')">Approve</button>
-          <button type="button" onclick="resolveSuggestion(${s.id}, 'reject')">Reject</button>
-        </div>`).join('');
-}
-
-async function resolveSuggestion(id, action) {
-  const res = await fetch(`/api/v1/gm/suggestions/${id}/${action}`, { method: 'POST' });
-  const data = await res.json();
-  if (!res.ok) {
-    document.getElementById('builder-error').textContent = formatDetail(data.detail);
-    return;
-  }
-  await loadSuggestions();
-  await loadAgentList();
-  document.getElementById('builder-success').textContent =
-    action === 'approve'
-      ? `Applied the GM's suggested prompt to "${data.agent_name}".`
-      : `Rejected the suggestion for "${data.agent_name}".`;
-}
-
-function startCreate() {
-  editingAgent = null;
-  outputEditable = true;
-  document.getElementById('form-heading').textContent = 'Create a new agent';
-  document.getElementById('submit-btn').textContent = 'Create agent';
-  document.getElementById('cancel-edit-btn').style.display = 'none';
-  document.getElementById('f-name').disabled = false;
-  document.getElementById('f-name').value = '';
-  document.getElementById('f-description').value = '';
-  document.getElementById('f-system-prompt').value = '';
-  document.getElementById('f-model').value = 'qwen2.5:14b';
-  document.getElementById('f-temperature').value = '0.7';
-  document.getElementById('f-main-class').value = '';
-  document.getElementById('f-sub-class').value = '';
-  document.getElementById('f-sample-input').value = '{}';
-  document.getElementById('field-rows').innerHTML = '';
-  document.getElementById('output-fields-fieldset').style.display = 'block';
-  addFieldRow();
-  document.getElementById('builder-error').textContent = '';
-  document.getElementById('builder-success').textContent = '';
-}
-
-async function startEdit(name) {
-  const res = await fetch(`/api/v1/agents/${encodeURIComponent(name)}/builder`);
-  const data = await res.json();
-  editingAgent = name;
-  outputEditable = data.output_model_editable;
-
-  document.getElementById('form-heading').innerHTML =
-    `Editing "${name}"` + (data.is_core ? '<span class="core-badge">core demo agent</span>' : '');
-  document.getElementById('submit-btn').textContent = 'Save changes';
-  document.getElementById('cancel-edit-btn').style.display = 'inline-block';
-  document.getElementById('f-name').disabled = true;
-  document.getElementById('f-name').value = data.name;
-  document.getElementById('f-description').value = data.description;
-  document.getElementById('f-system-prompt').value = data.system_prompt;
-  document.getElementById('f-model').value = data.model;
-  document.getElementById('f-temperature').value = data.temperature;
-  document.getElementById('f-sample-input').value = JSON.stringify(data.sample_input || {}, null, 2);
-
-  const fieldsFieldset = document.getElementById('output-fields-fieldset');
-  document.getElementById('field-rows').innerHTML = '';
-  if (outputEditable) {
-    fieldsFieldset.style.display = 'block';
-    addFieldRow();
-  } else {
-    fieldsFieldset.style.display = 'block';
-    const summary = Object.entries(data.output_fields_summary || {})
-      .map(([k, v]) => `${k}: ${v}`).join(', ');
-    document.getElementById('field-rows').innerHTML =
-      `<p class="readonly-note">Hand-written output schema, not editable here: ${summary}</p>`;
-  }
-
-  if (data.card) {
-    document.getElementById('f-main-class').value = data.card.main_class || '';
-    document.getElementById('f-sub-class').value = data.card.sub_class || '';
-  } else {
-    document.getElementById('f-main-class').value = '';
-    document.getElementById('f-sub-class').value = '';
-  }
-
-  document.getElementById('builder-error').textContent = '';
-  document.getElementById('builder-success').textContent = '';
-  window.scrollTo({ top: document.getElementById('form-heading').offsetTop, behavior: 'smooth' });
-}
-
-async function duplicateAgent(name) {
-  const newName = prompt(`Duplicate "${name}" as:`, `${name}_copy`);
-  if (!newName) return;
-  const res = await fetch(`/api/v1/builder/agents/${encodeURIComponent(name)}/duplicate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ new_name: newName }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    document.getElementById('builder-error').textContent = formatDetail(data.detail);
-    return;
-  }
-  await loadAgentList();
-  document.getElementById('builder-success').textContent = `Duplicated as "${newName}".`;
-}
-
-async function deleteAgentPrompt(name) {
-  const isCore = name === 'hello' || name === 'news';
-  if (!confirm(`Delete agent "${name}"? This cannot be undone.`)) return;
-  let url = `/api/v1/builder/agents/${encodeURIComponent(name)}?confirm=true`;
-  if (isCore) {
-    if (!confirm(`"${name}" is a core demo agent — delete it anyway?`)) return;
-    url += '&confirm_core=true';
-  }
-  const res = await fetch(url, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) {
-    document.getElementById('builder-error').textContent = formatDetail(data.detail);
-    return;
-  }
-  await loadAgentList();
-  if (editingAgent === name) startCreate();
-  document.getElementById('builder-success').textContent = `Deleted "${name}".`;
-}
-
-document.getElementById('f-model').addEventListener('blur', async () => {
-  const model = document.getElementById('f-model').value.trim();
-  if (!model) return;
-  const banner = document.getElementById('model-check-banner');
-  banner.textContent = 'Checking model availability…';
-  try {
-    const res = await fetch(`/api/v1/builder/model-check?model=${encodeURIComponent(model)}`);
-    const data = await res.json();
-    banner.textContent = data.message;
-  } catch (e) {
-    banner.textContent = '';
-  }
-});
-
-document.getElementById('builder-form').addEventListener('submit', async (evt) => {
-  evt.preventDefault();
-  const errorEl = document.getElementById('builder-error');
-  const successEl = document.getElementById('builder-success');
-  errorEl.textContent = '';
-  successEl.textContent = '';
-
-  let sampleInput = null;
-  const sampleText = document.getElementById('f-sample-input').value.trim();
-  if (sampleText && sampleText !== '{}') {
-    try {
-      sampleInput = JSON.parse(sampleText);
-    } catch (e) {
-      errorEl.textContent = 'Sample input is not valid JSON: ' + e.message;
-      return;
-    }
-  }
-
-  // No tool picker here by design: an agent's Pydantic output model is its
-  // full API contract, not a shared tool list. Omitting `tools` entirely
-  // means create defaults to [] and update leaves whatever tools an agent
-  // already had untouched (e.g. editing news's prompt won't drop fetch_rss_feed).
-  const mainClass = document.getElementById('f-main-class').value;
-  const card = mainClass
-    ? { main_class: mainClass, sub_class: document.getElementById('f-sub-class').value || null }
-    : null;
-
-  const body = {
-    description: document.getElementById('f-description').value,
-    system_prompt: document.getElementById('f-system-prompt').value,
-    model: document.getElementById('f-model').value,
-    temperature: parseFloat(document.getElementById('f-temperature').value),
-    card,
-    sample_input: sampleInput,
-  };
-
-  if (outputEditable) {
-    body.output_fields = collectFieldSpecs(document.getElementById('field-rows'));
-  }
-
-  let res;
-  if (editingAgent) {
-    res = await fetch(`/api/v1/builder/agents/${encodeURIComponent(editingAgent)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } else {
-    body.name = document.getElementById('f-name').value;
-    res = await fetch('/api/v1/builder/agents', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  }
-
-  const data = await res.json();
-  if (!res.ok) {
-    errorEl.textContent = formatDetail(data.detail);
-    return;
-  }
-
-  await loadAgentList();
-  successEl.innerHTML = `Saved "${data.name}". <a href="/?agent=${encodeURIComponent(data.name)}">Run it now →</a>`;
-  if (!editingAgent) {
-    window.location.href = `/?agent=${encodeURIComponent(data.name)}`;
-  }
-});
-
-(async function init() {
-  await loadClasses();
-  await loadAgentList();
-  await loadRespecQueue();
-  await loadSuggestions();
-  startCreate();
-})();
-</script>
-</body>
-</html>
-"""
-
-
-@app.get("/builder", response_class=HTMLResponse)
-def builder_page() -> str:
-    return _BUILDER_HTML
 
 
 if __name__ == "__main__":

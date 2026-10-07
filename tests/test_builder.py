@@ -9,6 +9,9 @@ from agent_kit.builder import (
     delete_agent,
     duplicate_agent,
     is_builder_generated,
+    is_input_builder_generated,
+    read_input_field_spec,
+    read_output_field_spec,
     read_sample_input,
     reload_registries,
     seed_core_sample_inputs,
@@ -21,6 +24,7 @@ from agent_kit.errors import (
     CoreAgentConfirmationRequiredError,
     DuplicateAgentError,
     DuplicateClassError,
+    InputModelNotEditableError,
     OutputModelNotEditableError,
 )
 from agent_kit.model_codegen import FieldSpec
@@ -119,6 +123,227 @@ def test_update_agent_hello_prompt_still_editable(paths):
     assert updated.system_prompt == "A new greeting style."
     # output model must be untouched/still the original hand-written class
     assert updated.output_model.__module__ == "agent_kit.agents.models.hello"
+
+
+# --- input_model (refinement Phase 1, Task 3 backend) ---
+
+
+def _simple_input_fields():
+    return [FieldSpec(name="name", type="string")]
+
+
+def test_create_agent_without_input_fields_has_no_input_model(paths):
+    definition = create_agent("no_input", system_prompt="sp", output_fields=_simple_fields())
+    assert definition.input_model is None
+    assert not (paths.generated_models_dir / "no_input_input.py").exists()
+
+
+def test_create_agent_with_input_fields_generates_and_sets_input_model(paths):
+    definition = create_agent(
+        "with_input", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    assert definition.input_model is not None
+    assert set(definition.input_model.model_fields.keys()) == {"name"}
+    assert is_input_builder_generated(definition, paths)
+    # Independent file from the output model — not appended to the same one.
+    assert (paths.generated_models_dir / "with_input.py").exists()
+    assert (paths.generated_models_dir / "with_input_input.py").exists()
+
+
+def test_create_agent_bad_input_fields_leaves_no_orphaned_output_file(paths):
+    """The ordering bug this guards against: output_fields is valid and would
+    normally write successfully, but a bad input_fields must abort before
+    that write happens at all — not after, with nothing to clean it up."""
+    with pytest.raises(Exception):
+        create_agent(
+            "orphan_check", system_prompt="sp",
+            output_fields=_simple_fields(), input_fields=[],  # EmptyOutputModelError, role="input"
+        )
+    with pytest.raises(AgentNotFoundError):
+        get_registry().get("orphan_check")
+    assert not (paths.generated_models_dir / "orphan_check.py").exists()
+    assert not (paths.generated_models_dir / "orphan_check_input.py").exists()
+
+
+def test_update_agent_input_fields_regenerates_and_reflects_new_schema(paths):
+    definition = create_agent(
+        "input_schema_agent", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    old_input_class = definition.input_model
+    assert set(old_input_class.model_fields.keys()) == {"name"}
+
+    new_input_fields = [FieldSpec(name="name", type="string"), FieldSpec(name="count", type="integer")]
+    updated = update_agent("input_schema_agent", input_fields=new_input_fields)
+    new_input_class = updated.input_model
+
+    assert set(new_input_class.model_fields.keys()) == {"name", "count"}
+    assert new_input_class is not old_input_class
+
+
+def test_update_agent_output_only_leaves_existing_input_model_untouched(paths):
+    """Proves the separate-files design actually works: editing only the
+    output fields must not silently drop the agent's input model, which a
+    single shared generated file would have done."""
+    create_agent(
+        "both_sides", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    new_output_fields = [FieldSpec(name="greeting", type="string"), FieldSpec(name="count", type="integer")]
+
+    updated = update_agent("both_sides", output_fields=new_output_fields)
+
+    assert set(updated.output_model.model_fields.keys()) == {"greeting", "count"}
+    assert updated.input_model is not None
+    assert set(updated.input_model.model_fields.keys()) == {"name"}
+
+
+def test_update_agent_can_add_input_fields_to_an_agent_that_never_had_one(paths):
+    create_agent("gains_input_later", system_prompt="sp", output_fields=_simple_fields())
+    assert get_registry().get("gains_input_later").input_model is None
+
+    updated = update_agent("gains_input_later", input_fields=_simple_input_fields())
+
+    assert updated.input_model is not None
+    assert set(updated.input_model.model_fields.keys()) == {"name"}
+
+
+def test_update_agent_hand_written_input_model_rejected(paths):
+    """An input model that isn't builder-generated must be protected the same
+    way a hand-written output model already is — simulated here by pointing a
+    builder-generated agent's input_model at a real hand-written class
+    directly in YAML, without depending on Task 5 having landed yet."""
+    create_agent("has_output_only", system_prompt="sp", output_fields=_simple_fields())
+    yaml_path = paths.agents_dir / "has_output_only.yaml"
+    yaml_path.write_text(
+        yaml_path.read_text() + "input_model: agent_kit.agents.models.hello.HelloInput\n"
+    )
+    reload_registries(paths)
+    assert get_registry().get("has_output_only").input_model is not None
+
+    with pytest.raises(InputModelNotEditableError):
+        update_agent("has_output_only", input_fields=_simple_input_fields())
+
+
+def test_duplicate_agent_copies_input_model_when_present(paths):
+    create_agent(
+        "dup_with_input", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    duplicated = duplicate_agent("dup_with_input", "dup_with_input_copy")
+
+    assert duplicated.input_model is not None
+    assert set(duplicated.input_model.model_fields.keys()) == {"name"}
+    assert (paths.generated_models_dir / "dup_with_input_copy_input.py").exists()
+    # The copy's own class, not a shared reference to the original's.
+    assert duplicated.input_model is not get_registry().get("dup_with_input").input_model
+
+
+def test_delete_agent_removes_input_model_file(paths):
+    create_agent(
+        "to_delete_with_input", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    assert (paths.generated_models_dir / "to_delete_with_input_input.py").exists()
+
+    delete_agent("to_delete_with_input")
+
+    assert not (paths.generated_models_dir / "to_delete_with_input_input.py").exists()
+    with pytest.raises(AgentNotFoundError):
+        get_registry().get("to_delete_with_input")
+
+
+# --- field spec sidecars (refinement Phase 2, Task 10 — the lossless edit fix) ---
+
+
+def test_create_agent_writes_a_recoverable_output_field_spec(paths):
+    nested_field = FieldSpec(
+        name="detail", type="nested", nested_fields=[FieldSpec(name="note", type="string", required=False)]
+    )
+    create_agent(
+        "spec_agent", system_prompt="sp",
+        output_fields=[FieldSpec(name="greeting", type="string", is_list=True), nested_field],
+    )
+    spec = read_output_field_spec("spec_agent", paths)
+    assert spec is not None
+    assert spec[0].name == "greeting" and spec[0].is_list is True
+    # The exact thing str(field.annotation) reconstruction cannot recover:
+    assert spec[1].type == "nested"
+    assert spec[1].nested_fields[0].name == "note"
+    assert spec[1].nested_fields[0].required is False
+
+
+def test_create_agent_without_input_fields_writes_no_input_spec(paths):
+    create_agent("no_input_spec_agent", system_prompt="sp", output_fields=_simple_fields())
+    assert read_input_field_spec("no_input_spec_agent", paths) is None
+
+
+def test_create_agent_with_input_fields_writes_a_recoverable_input_spec(paths):
+    create_agent(
+        "input_spec_agent", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    spec = read_input_field_spec("input_spec_agent", paths)
+    assert spec is not None
+    assert spec[0].name == "name" and spec[0].type == "string"
+
+
+def test_update_agent_output_fields_overwrites_only_the_output_spec(paths):
+    create_agent(
+        "update_spec_agent", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    new_output = [FieldSpec(name="greeting", type="string"), FieldSpec(name="count", type="integer")]
+
+    update_agent("update_spec_agent", output_fields=new_output)
+
+    output_spec = read_output_field_spec("update_spec_agent", paths)
+    assert {f.name for f in output_spec} == {"greeting", "count"}
+    # Input wasn't touched — its spec must survive untouched too, mirroring
+    # the file-level guarantee test_update_agent_output_only_leaves_existing_input_model_untouched
+    # already covers for the generated .py; this covers the sidecar the same way.
+    input_spec = read_input_field_spec("update_spec_agent", paths)
+    assert input_spec is not None and input_spec[0].name == "name"
+
+
+def test_duplicate_agent_copies_the_output_field_spec(paths):
+    create_agent("dup_spec_source", system_prompt="sp", output_fields=_simple_fields())
+    duplicate_agent("dup_spec_source", "dup_spec_target")
+
+    original_spec = read_output_field_spec("dup_spec_source", paths)
+    copied_spec = read_output_field_spec("dup_spec_target", paths)
+    assert copied_spec is not None
+    assert [f.name for f in copied_spec] == [f.name for f in original_spec]
+
+
+def test_duplicate_agent_copies_the_input_field_spec_when_present(paths):
+    create_agent(
+        "dup_input_spec_source", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    duplicate_agent("dup_input_spec_source", "dup_input_spec_target")
+
+    copied_spec = read_input_field_spec("dup_input_spec_target", paths)
+    assert copied_spec is not None and copied_spec[0].name == "name"
+
+
+def test_delete_agent_removes_the_field_spec_sidecars(paths):
+    create_agent(
+        "delete_spec_agent", system_prompt="sp",
+        output_fields=_simple_fields(), input_fields=_simple_input_fields(),
+    )
+    delete_agent("delete_spec_agent")
+
+    assert read_output_field_spec("delete_spec_agent", paths) is None
+    assert read_input_field_spec("delete_spec_agent", paths) is None
+
+
+def test_hand_written_model_has_no_field_spec_sidecar(paths):
+    """hello's output/input models are hand-written — there was never a
+    FieldSpec that produced them, so there is nothing to persist."""
+    assert read_output_field_spec("hello", paths) is None
+    assert read_input_field_spec("hello", paths) is None
 
 
 def test_update_agent_unknown_name_raises(paths):

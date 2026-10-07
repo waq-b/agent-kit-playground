@@ -48,6 +48,13 @@ class UnresolvableOutputModelError(AgentKitError):
     """Raised when an output_model dotted path cannot be resolved."""
 
 
+class UnresolvableInputModelError(AgentKitError):
+    """Raised when an input_model dotted path is present but cannot be resolved.
+
+    Mirrors UnresolvableOutputModelError. Only ever raised when input_model is
+    actually specified — an agent with no input_model at all is valid."""
+
+
 class AgentConnectionError(AgentKitError):
     """Raised when the configured model provider is unreachable."""
 
@@ -122,6 +129,14 @@ class EmptyOutputModelError(AgentKitError):
 
 class OutputModelNotEditableError(AgentKitError):
     """Raised when an update targets the output schema of a hand-written (non-builder-generated) agent."""
+
+
+class InputModelNotEditableError(AgentKitError):
+    """Raised when an update targets the input schema of a hand-written (non-builder-generated) agent.
+
+    Mirrors OutputModelNotEditableError. Never raised for an agent that has no
+    input model yet — adding a first one is always allowed, since there is
+    nothing hand-written to protect."""
 
 
 class CoreAgentConfirmationRequiredError(AgentKitError):

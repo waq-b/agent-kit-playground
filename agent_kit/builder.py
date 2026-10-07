@@ -33,10 +33,16 @@ from agent_kit.errors import (
     CoreAgentConfirmationRequiredError,
     DuplicateAgentError,
     DuplicateClassError,
+    InputModelNotEditableError,
     OutputModelNotEditableError,
 )
 from agent_kit.loader import DefinitionLoader
-from agent_kit.model_codegen import FieldSpec, generate_model_source, output_class_name
+from agent_kit.model_codegen import (
+    FieldSpec,
+    generate_model_source,
+    input_class_name,
+    output_class_name,
+)
 from agent_kit.registry import get_registry
 from agent_kit.settings import resolve_model_provider
 from agent_kit.stub_store import get_stub_store
@@ -76,6 +82,17 @@ class BuilderPaths:
     def sample_input_file(self, agent_name: str) -> Path:
         return self.data_dir / f"{agent_name}.sample.json"
 
+    def output_spec_file(self, agent_name: str) -> Path:
+        """The original FieldSpec list that produced this agent's generated
+        output model. Persisted so a later edit can read back the *exact*
+        spec instead of reverse-engineering one from Python type annotations
+        (which loses nested sub-field structure — see _read_field_spec).
+        Lives next to the generated .py it describes."""
+        return self.generated_models_dir / f"{agent_name}.spec.json"
+
+    def input_spec_file(self, agent_name: str) -> Path:
+        return self.generated_models_dir / f"{agent_name}_input.spec.json"
+
 
 def default_builder_paths() -> BuilderPaths:
     root = os.environ.get("AGENT_KIT_DATA_DIR", _DEFAULT_DATA_DIR)
@@ -103,6 +120,21 @@ def ensure_data_dirs(paths: BuilderPaths | None = None) -> None:
 def is_builder_generated(definition: AgentDefinition, paths: BuilderPaths | None = None) -> bool:
     paths = paths or DEFAULT_PATHS
     module = getattr(definition.output_model, "__module__", "")
+    prefix = paths.generated_models_package
+    return module == prefix or module.startswith(prefix + ".")
+
+
+def is_input_builder_generated(definition: AgentDefinition, paths: BuilderPaths | None = None) -> bool:
+    """Same check as is_builder_generated, for the input side.
+
+    Input and output are independent artifacts (separate generated files, see
+    _input_model_path) — an agent could in principle have one builder-generated
+    and the other hand-written. Returns False when there's no input model at
+    all; that's "nothing to edit", not "not editable"."""
+    if definition.input_model is None:
+        return False
+    paths = paths or DEFAULT_PATHS
+    module = getattr(definition.input_model, "__module__", "")
     prefix = paths.generated_models_package
     return module == prefix or module.startswith(prefix + ".")
 
@@ -173,17 +205,31 @@ def card_definition_to_dict(card: CardDefinition | None) -> dict[str, Any] | Non
     return result
 
 
-def _write_generated_model(
-    name: str, output_fields: list[FieldSpec], paths: BuilderPaths
-) -> tuple[Path, bytes | None]:
-    """Renders + writes the generated model file, returning (path, previous_bytes)
-    so a failed commit can restore the prior state (or delete, for a fresh create)."""
-    source = generate_model_source(name, output_fields)  # raises before any write
-    model_path = paths.generated_models_dir / f"{name}.py"
+def _write_model_file(model_path: Path, source: str, paths: BuilderPaths) -> tuple[Path, bytes | None]:
+    """Writes one generated model file, returning (path, previous_bytes) so a
+    failed commit can restore the prior state (or delete, for a fresh create)."""
     previous_bytes = model_path.read_bytes() if model_path.exists() else None
     model_path.write_text(source)
     _invalidate_generated_model_modules(paths)
     return model_path, previous_bytes
+
+
+def _output_model_path(name: str, paths: BuilderPaths) -> Path:
+    return paths.generated_models_dir / f"{name}.py"
+
+
+def _input_model_path(name: str, paths: BuilderPaths) -> Path:
+    # Input gets its own file, not a shared one with output. If both lived in
+    # one file, editing only the output fields (the common case, since "only
+    # send if touched" applies independently to each side) would regenerate
+    # that file from the output FieldSpecs alone and silently drop the input
+    # classes — there's no reliable way yet to reconstruct the untouched
+    # side's FieldSpec list to merge back in (the lossy-reconstruction problem
+    # tracked separately). Separate files sidestep it: regenerating one never
+    # touches the other.
+    return paths.generated_models_dir / f"{name}_input.py"
+
+
 
 
 def _restore_generated_model(model_path: Path, previous_bytes: bytes | None, paths: BuilderPaths) -> None:
@@ -215,6 +261,7 @@ def create_agent(
     *,
     system_prompt: str,
     output_fields: list[FieldSpec],
+    input_fields: list[FieldSpec] | None = None,
     description: str = "",
     model: str = "qwen2.5:14b",
     temperature: float = 0.7,
@@ -224,6 +271,11 @@ def create_agent(
     sample_input: dict[str, Any] | None = None,
     paths: BuilderPaths | None = None,
 ) -> AgentDefinition:
+    """input_fields is optional at this layer — matching Task 1's "optional at
+    load time" for AgentDefinition.input_model. "Required for new agents" is a
+    wizard-level (client-side) rule, not a backend contract requirement, so a
+    direct API caller can still create an input-model-less agent if it wants
+    the old pass-through /run behaviour on purpose."""
     paths = paths or DEFAULT_PATHS
     ensure_data_dirs(paths)
 
@@ -242,7 +294,25 @@ def create_agent(
         deleted.discard(name)
         _write_deleted_agents(deleted, paths)
 
-    model_path, previous_bytes = _write_generated_model(name, output_fields, paths)
+    # Generate both sources before writing either file. generate_model_source
+    # validates before rendering, so a bad input_fields spec raises here,
+    # before the output model — already known-good at this point — is ever
+    # written to disk. Without this ordering a bad input_fields would leave an
+    # orphaned, unreferenced output .py file behind on a failed create.
+    output_source = generate_model_source(name, output_fields)
+    input_source = (
+        generate_model_source(name, input_fields, root_class_name=input_class_name(name), role="input")
+        if input_fields is not None
+        else None
+    )
+
+    model_path, previous_bytes = _write_model_file(_output_model_path(name, paths), output_source, paths)
+    input_model_path: Path | None = None
+    input_previous_bytes: bytes | None = None
+    if input_source is not None:
+        input_model_path, input_previous_bytes = _write_model_file(
+            _input_model_path(name, paths), input_source, paths
+        )
 
     output_model_ref = f"{paths.generated_models_package}.{name}.{output_class_name(name)}"
     data: dict[str, Any] = {
@@ -254,6 +324,8 @@ def create_agent(
         "tools": list(tools or []),
         "output_model": output_model_ref,
     }
+    if input_fields is not None:
+        data["input_model"] = f"{paths.generated_models_package}.{name}_input.{input_class_name(name)}"
     if feeds:
         data["feeds"] = list(feeds)
     if card:
@@ -263,10 +335,18 @@ def create_agent(
         result = _commit_agent_yaml(name, data, paths)
     except AgentKitError:
         _restore_generated_model(model_path, previous_bytes, paths)
+        if input_model_path is not None:
+            _restore_generated_model(input_model_path, input_previous_bytes, paths)
         raise
 
     if sample_input is not None:
         write_sample_input(name, sample_input, paths)
+
+    # Persisted only after the commit succeeds — a spec sidecar for a model
+    # that never became a real registered agent would be orphaned data.
+    write_output_field_spec(name, output_fields, paths)
+    if input_fields is not None:
+        write_input_field_spec(name, input_fields, paths)
 
     return result
 
@@ -276,6 +356,7 @@ def update_agent(
     *,
     system_prompt: str | None = None,
     output_fields: list[FieldSpec] | None = None,
+    input_fields: list[FieldSpec] | None = None,
     description: str | None = None,
     model: str | None = None,
     temperature: float | None = None,
@@ -285,6 +366,11 @@ def update_agent(
     sample_input: dict[str, Any] | None = None,
     paths: BuilderPaths | None = None,
 ) -> AgentDefinition:
+    """input_fields=None means "leave the input model exactly as it is" —
+    same "only send if actually touched" contract output_fields already has.
+    Unlike output, "as it is" may be *no input model at all*, which is always
+    fine to leave alone or to fill in for the first time; the not-editable
+    gate below only fires for editing an *existing* hand-written one."""
     paths = paths or DEFAULT_PATHS
     ensure_data_dirs(paths)
 
@@ -293,6 +379,14 @@ def update_agent(
     if output_fields is not None and not is_builder_generated(current, paths):
         raise OutputModelNotEditableError(
             f"agent '{name}'s output schema is hand-written and cannot be edited through the builder"
+        )
+    if (
+        input_fields is not None
+        and current.input_model is not None
+        and not is_input_builder_generated(current, paths)
+    ):
+        raise InputModelNotEditableError(
+            f"agent '{name}'s input schema is hand-written and cannot be edited through the builder"
         )
 
     data: dict[str, Any] = {
@@ -312,23 +406,53 @@ def update_agent(
     if effective_card:
         data["card"] = effective_card
 
+    # Same reasoning as create_agent: generate both sources (whichever are
+    # actually being changed) before writing either file, so a bad spec on
+    # one side can never leave a freshly-written, orphaned file for the other.
+    output_source = generate_model_source(name, output_fields) if output_fields is not None else None
+    input_source = (
+        generate_model_source(name, input_fields, root_class_name=input_class_name(name), role="input")
+        if input_fields is not None
+        else None
+    )
+
     model_path: Path | None = None
     previous_bytes: bytes | None = None
-    if output_fields is not None:
-        model_path, previous_bytes = _write_generated_model(name, output_fields, paths)
+    if output_source is not None:
+        model_path, previous_bytes = _write_model_file(_output_model_path(name, paths), output_source, paths)
         data["output_model"] = f"{paths.generated_models_package}.{name}.{output_class_name(name)}"
     else:
         data["output_model"] = _dotted_path(current.output_model)
+
+    input_model_path: Path | None = None
+    input_previous_bytes: bytes | None = None
+    if input_source is not None:
+        input_model_path, input_previous_bytes = _write_model_file(
+            _input_model_path(name, paths), input_source, paths
+        )
+        data["input_model"] = f"{paths.generated_models_package}.{name}_input.{input_class_name(name)}"
+    elif current.input_model is not None:
+        data["input_model"] = _dotted_path(current.input_model)
 
     try:
         result = _commit_agent_yaml(name, data, paths)
     except AgentKitError:
         if model_path is not None:
             _restore_generated_model(model_path, previous_bytes, paths)
+        if input_model_path is not None:
+            _restore_generated_model(input_model_path, input_previous_bytes, paths)
         raise
 
     if sample_input is not None:
         write_sample_input(name, sample_input, paths)
+
+    # Only the side that actually changed gets a fresh sidecar — an untouched
+    # side's existing spec (if any) is left exactly as it was, matching the
+    # "only send if touched" contract's own semantics for the model file itself.
+    if output_fields is not None:
+        write_output_field_spec(name, output_fields, paths)
+    if input_fields is not None:
+        write_input_field_spec(name, input_fields, paths)
 
     return result
 
@@ -348,6 +472,12 @@ def delete_agent(name: str, confirm_core: bool = False, paths: BuilderPaths | No
     if is_builder_generated(definition, paths):
         (paths.generated_models_dir / f"{name}.py").unlink(missing_ok=True)
         _invalidate_generated_model_modules(paths)
+        delete_output_field_spec(name, paths)
+
+    if is_input_builder_generated(definition, paths):
+        (paths.generated_models_dir / f"{name}_input.py").unlink(missing_ok=True)
+        _invalidate_generated_model_modules(paths)
+        delete_input_field_spec(name, paths)
 
     delete_sample_input(name, paths)
 
@@ -391,9 +521,31 @@ def duplicate_agent(name: str, new_name: str, paths: BuilderPaths | None = None)
         new_model_path.write_text(source.replace(current.output_model.__name__, f"{output_class_name(new_name)}"))
         _invalidate_generated_model_modules(paths)
         data["output_model"] = f"{paths.generated_models_package}.{new_name}.{output_class_name(new_name)}"
+        # The spec sidecar is plain data (field names/types), not source
+        # referencing the old class name — copy it verbatim under the new name.
+        output_spec = read_output_field_spec(name, paths)
+        if output_spec is not None:
+            write_output_field_spec(new_name, output_spec, paths)
     else:
         # Hand-written model classes are safe to share — no file duplication needed.
         data["output_model"] = _dotted_path(current.output_model)
+
+    if current.input_model is not None:
+        if is_input_builder_generated(current, paths):
+            input_source = (paths.generated_models_dir / f"{name}_input.py").read_text()
+            new_input_model_path = paths.generated_models_dir / f"{new_name}_input.py"
+            new_input_model_path.write_text(
+                input_source.replace(current.input_model.__name__, input_class_name(new_name))
+            )
+            _invalidate_generated_model_modules(paths)
+            data["input_model"] = (
+                f"{paths.generated_models_package}.{new_name}_input.{input_class_name(new_name)}"
+            )
+            input_spec = read_input_field_spec(name, paths)
+            if input_spec is not None:
+                write_input_field_spec(new_name, input_spec, paths)
+        else:
+            data["input_model"] = _dotted_path(current.input_model)
 
     return _commit_agent_yaml(new_name, data, paths)
 
@@ -448,6 +600,58 @@ def check_model_reachable(model_name: str) -> dict[str, Any]:
         return {"available": False, "message": f"'{model_name}' not found in {source}'s model list"}
     except Exception as e:
         return {"available": False, "message": f"could not reach {source} to check: {e}"}
+
+
+def _read_field_spec(path: Path) -> list[FieldSpec] | None:
+    """Loads a persisted FieldSpec list.
+
+    Refinement Phase 2, Task 10: before this, the *only* record of a
+    builder-generated model's shape was the generated Python class itself —
+    editing it meant reconstructing a FieldSpec from `str(field.annotation)`,
+    which cannot recover a nested model's sub-fields (there is no way to tell
+    "a nested class with these fields" apart from "some other BaseModel
+    subclass" by string alone). Persisting the spec that produced the class,
+    right alongside it, makes a later edit lossless: read the real spec back
+    instead of guessing one from the generated code.
+    """
+    if not path.exists():
+        return None
+    return [FieldSpec.model_validate(f) for f in json.loads(path.read_text())]
+
+
+def _write_field_spec(path: Path, fields: list[FieldSpec], paths: BuilderPaths) -> None:
+    ensure_data_dirs(paths)
+    path.write_text(json.dumps([f.model_dump() for f in fields]))
+
+
+def read_output_field_spec(name: str, paths: BuilderPaths | None = None) -> list[FieldSpec] | None:
+    paths = paths or DEFAULT_PATHS
+    return _read_field_spec(paths.output_spec_file(name))
+
+
+def write_output_field_spec(name: str, fields: list[FieldSpec], paths: BuilderPaths | None = None) -> None:
+    paths = paths or DEFAULT_PATHS
+    _write_field_spec(paths.output_spec_file(name), fields, paths)
+
+
+def delete_output_field_spec(name: str, paths: BuilderPaths | None = None) -> None:
+    paths = paths or DEFAULT_PATHS
+    paths.output_spec_file(name).unlink(missing_ok=True)
+
+
+def read_input_field_spec(name: str, paths: BuilderPaths | None = None) -> list[FieldSpec] | None:
+    paths = paths or DEFAULT_PATHS
+    return _read_field_spec(paths.input_spec_file(name))
+
+
+def write_input_field_spec(name: str, fields: list[FieldSpec], paths: BuilderPaths | None = None) -> None:
+    paths = paths or DEFAULT_PATHS
+    _write_field_spec(paths.input_spec_file(name), fields, paths)
+
+
+def delete_input_field_spec(name: str, paths: BuilderPaths | None = None) -> None:
+    paths = paths or DEFAULT_PATHS
+    paths.input_spec_file(name).unlink(missing_ok=True)
 
 
 def read_sample_input(name: str, paths: BuilderPaths | None = None) -> dict[str, Any] | None:

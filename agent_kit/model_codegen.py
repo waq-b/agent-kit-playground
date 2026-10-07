@@ -49,9 +49,9 @@ def _is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith("_")
 
 
-def validate_field_specs(fields: list[FieldSpec], _depth: int = 0) -> None:
+def validate_field_specs(fields: list[FieldSpec], _depth: int = 0, *, role: str = "output") -> None:
     if not fields:
-        raise EmptyOutputModelError("output model must have at least one field")
+        raise EmptyOutputModelError(f"{role} model must have at least one field")
 
     seen_names: set[str] = set()
     for f in fields:
@@ -74,7 +74,7 @@ def validate_field_specs(fields: list[FieldSpec], _depth: int = 0) -> None:
                 raise NestingDepthExceededError(
                     f"field '{f.name}' exceeds the maximum nesting depth of {_MAX_NESTING_DEPTH}"
                 )
-            validate_field_specs(f.nested_fields, _depth=_depth + 1)
+            validate_field_specs(f.nested_fields, _depth=_depth + 1, role=role)
         elif f.nested_fields:
             raise InvalidFieldSpecError(
                 f"field '{f.name}' has nested_fields but type is '{f.type}', not 'nested'"
@@ -88,6 +88,10 @@ def to_pascal_case(name: str) -> str:
 
 def output_class_name(agent_name: str) -> str:
     return f"{to_pascal_case(agent_name)}Output"
+
+
+def input_class_name(agent_name: str) -> str:
+    return f"{to_pascal_case(agent_name)}Input"
 
 
 def _python_type(field: FieldSpec, root_class_name: str) -> str:
@@ -111,9 +115,24 @@ def _render_class_body(fields: list[FieldSpec], root_class_name: str) -> list[st
     return lines
 
 
-def generate_model_source(agent_name: str, fields: list[FieldSpec]) -> str:
-    validate_field_specs(fields)
-    root_name = output_class_name(agent_name)
+def generate_model_source(
+    agent_name: str,
+    fields: list[FieldSpec],
+    *,
+    root_class_name: str | None = None,
+    role: str = "output",
+) -> str:
+    """Generate one Pydantic model's source, plus any nested classes it needs.
+
+    Defaults to the output-model convention every existing caller relies on:
+    root class named via `output_class_name(agent_name)`. Pass
+    `root_class_name=input_class_name(agent_name)` and `role="input"` to
+    generate an input model instead — same field types, same one-level
+    nesting rule, no new codegen logic; only the class name and the
+    empty-fields error wording differ by role.
+    """
+    validate_field_specs(fields, role=role)
+    root_name = root_class_name or output_class_name(agent_name)
 
     nested_class_blocks: list[str] = []
     for f in fields:

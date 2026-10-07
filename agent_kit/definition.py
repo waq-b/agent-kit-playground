@@ -22,3 +22,8 @@ class AgentDefinition:
     source_path: Path
     feeds: list[str] = field(default_factory=list)
     card: CardDefinition | None = None
+    # Optional, unlike output_model: an agent with no declared input contract
+    # still runs exactly as it always has (POST /run passes the body through
+    # unvalidated). Mirrors output_model in every other respect — same dotted
+    # path resolution, same error type on an unresolvable reference.
+    input_model: type[BaseModel] | None = None

@@ -5,6 +5,7 @@ model: qwen2.5:14b
 temperature: 0.7
 tools: []
 output_model: agent_kit.agents.models.hello.HelloOutput
+input_model: agent_kit.agents.models.hello.HelloInput
 card:
   main_class: greeter
   backstory: "Once a simple echo script, now warmed up with a friendly personality."

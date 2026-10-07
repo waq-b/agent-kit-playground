@@ -161,9 +161,3 @@ def test_suggestions_status_filter(client, isolated_registries, _isolated_stores
     assert client.get("/api/v1/gm/suggestions").json() == []
     assert len(client.get("/api/v1/gm/suggestions", params={"status": "all"}).json()) == 1
     assert len(client.get("/api/v1/gm/suggestions", params={"status": "rejected"}).json()) == 1
-
-
-def test_builder_page_renders_gm_sections(client, isolated_registries, _isolated_stores):
-    body = client.get("/builder").text
-    assert "Respec queue" in body
-    assert "GM suggestions" in body
