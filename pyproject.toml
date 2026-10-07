@@ -31,3 +31,5 @@ include = ["agent_kit*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Lets a bare `pytest tests/` (as CI runs it) import `tests.conftest`.
+pythonpath = ["."]
