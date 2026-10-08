@@ -25,7 +25,7 @@ The model only handles wording. Scoring, selection and parameter changes are pur
 
 ### The game framing
 
-I dressed this up as an RPG because it made the mechanics easy to reason about and fun to poke at. Each agent has a character card with a level, XP, base stats, a class (for example Greeter, Investigator, News Hound), and an unlock table. Classes are YAML files and an agent can have a main class and a sub class whose effects stack. The GM is the "Game Master" who narrates the character. Under the costume it is the loop above.
+I framed this as an RPG because it made the mechanics easy to reason about. Each agent has a character card with a level, XP, base stats, a class (for example Greeter, Investigator, News Hound), and an unlock table. Classes are YAML files and an agent can have a main class and a sub class whose effects stack. The GM is the "Game Master" who narrates the character. Under the costume it is the loop above.
 
 ![Roster screen with character cards and the Game Master panel](docs/images/playground-roster.png)
 
